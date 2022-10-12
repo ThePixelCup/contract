@@ -1,3 +1,6 @@
+require("hardhat-gas-reporter");
+require("@nomicfoundation/hardhat-toolbox");
+
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
@@ -9,4 +12,7 @@ module.exports = {
       },
     },
   },
+  gasReporter: {
+    enabled: true
+  }
 };
