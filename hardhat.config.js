@@ -1,5 +1,6 @@
 require("hardhat-gas-reporter");
 require("@nomicfoundation/hardhat-toolbox");
+require('solidity-coverage');
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -11,8 +12,18 @@ module.exports = {
         runs: 200,
       },
     },
+    compilers: {
+      settings: {
+        outputSelection: {
+          "*": {
+            "*": ["storageLayout"]
+          }
+        }
+      }
+    }
   },
   gasReporter: {
-    enabled: true
+    enabled: false,
+    currency: "USD"
   }
 };

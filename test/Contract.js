@@ -1,85 +1,606 @@
 const { expect } = require('chai');
+const { smock } = require('@defi-wonderland/smock');
 const Chance = require('chance');
 const chance = new Chance();
 const provider = hre.ethers.provider;
 
-describe('PixelCup Contract', () => {
-  let pixelCup, owner, userA, userB;
+const getStickerProps = (id) => {
+  const [country, type, number1, number2] = id.toString();
+  return {
+    id,
+    country: Number(country),
+    type: Number(type),
+    number: Number(`${number1}${number2}`)
+  }
+};
 
-  it('Should should deploy contract', async () => {
-    ([owner, userA, userB] = await ethers.getSigners());
-    const Contract = await ethers.getContractFactory("PixelCup");
-    pixelCup = await Contract.deploy('ifps://');
-    
-    const totalStickers = await pixelCup.TOTAL_PACKS();
-    expect(totalStickers).to.equal(102);
+describe('Contract', () => {
+  let totalPacks = 225,
+      stickersPerPack = 4,
+      maxWinners = 3,
+      totalCountries = 6,
+      totalTypes = 3,
+      marketingPacks = 12,
+      packPrice = ethers.utils.parseEther('0.01');
+
+  let pixelCup, owner, userA, userB, userC, userD, userAstickers = [], userBstickers = [];
+
+  describe('Setup', () => {
+    it('Should deploy the contract', async () => {
+      ([owner, userA, userB, userC, userD] = await ethers.getSigners());
+      const Contract = await ethers.getContractFactory("PixelCup");
+      pixelCup = await Contract.deploy(
+        'ipfs://{id}.json',
+        totalPacks,
+        marketingPacks,
+        stickersPerPack,
+        maxWinners,
+        totalCountries,
+        packPrice
+      );
+      
+      // Contract conf
+      expect(await pixelCup.totalPacks()).to.equal(totalPacks);
+      expect(await pixelCup.stickersPerPack()).to.equal(stickersPerPack);
+      expect(await pixelCup.maxWinners()).to.equal(maxWinners);
+      expect(await pixelCup.totalCountries()).to.equal(totalCountries);
+      expect(await pixelCup.packPrice()).to.equal(packPrice);
+
+      // Pack allocation
+      expect(await pixelCup.packBalance(owner.address)).to.equal(marketingPacks);
+      expect(await pixelCup.mintedPacks()).to.equal(marketingPacks);
+
+      // Uri
+      const uri = await pixelCup.uri(1);
+      expect(uri).to.equal('ipfs://{id}.json');
+    });
+
+    it('Should register stickers', async () => {
+      const countryIds = [];
+      const typeIds = [];
+      const shirtNumbers = [];
+      const amounts = [];
+      for (let c = 1; c <= totalCountries; c++) {
+        for (let t = 1; t <= totalTypes; t++) {
+          for (let n = 1; n <= 10; n++) {
+            countryIds.push(c);
+            typeIds.push(t);
+            shirtNumbers.push(n);
+            amounts.push(5);
+          } 
+        }
+      }
+      const totalAmount = amounts.reduce((p, a) => p + a, 0);
+      const step = stickersPerPack;
+
+      try{
+        await pixelCup.connect(userA).registerStickers(countryIds, typeIds, shirtNumbers, amounts);
+      } catch(err) {
+        expect(err.message).to.include('caller is not the owner');
+      }
+
+      // Do it in batches as it will be in mainnet
+      for (let j = step; j <= (amounts.length + step); j+=step) {
+        await pixelCup.registerStickers(
+          countryIds.slice(j - step, j),
+          typeIds.slice(j - step, j),
+          shirtNumbers.slice(j - step, j),
+          amounts.slice(j - step, j)
+        );
+      }
+      const totalStickers = await pixelCup.stickersRemaining();
+      const registeredStickers = await pixelCup.registeredStickers();
+
+      expect(totalStickers).to.equal(totalAmount);
+      expect(registeredStickers).to.equal(amounts.length);
+    });
   });
 
-  it('Should register stickers', async () => {
-    const countryIds = [1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6];
-    const typeIds = [3,1,1,1,1,2,2,2,2,3,1,1,1,1,2,2,2,2,3,1,1,1,1,2,2,2,2,3,1,1,1,1,2,2,2,2,3,1,1,1,1,2,2,2,2,3,1,1,1,1,2,2,2,2];
-    const shirtNumbers = [1,2,3,4,5,2,3,4,5,1,2,3,4,5,2,3,4,5,1,2,3,4,5,2,3,4,5,1,2,3,4,5,2,3,4,5,1,2,3,4,5,2,3,4,5,1,2,3,4,5,2,3,4,5];
-    const amounts = [6,9,4,5,6,8,8,10,5,8,4,5,10,5,11,9,7,8,11,6,7,10,5,8,6,6,8,10,5,5,8,6,8,7,7,10,10,9,7,8,8,7,4,11,8,7,7,9,11,10,7,9,7,8];
-    const totalAmount = amounts.reduce((p, a) => p + a, 0);
+  describe('Packs', () => {
+    it('Should update the pack price', async () => {
+      expect(ethers.utils.formatEther(packPrice)).to.equal('0.01');
+      const newPrice = ethers.utils.parseEther('0.02');
 
-    await pixelCup.registerStickers(countryIds, typeIds, shirtNumbers, amounts);
+      try {
+        // Fail if not owner
+        await pixelCup.connect(userA).setPackPrice(newPrice);
+      } catch (err) {
+        expect(err.message).to.include('caller is not the owner');
+      }
 
-    const totalStickers = await pixelCup.stickersRemaining();
-    const registeredStickers = await pixelCup.registeredStickers();
+      await pixelCup.connect(owner).setPackPrice(newPrice);
+      packPrice = await pixelCup.packPrice();
+      expect(newPrice).to.deep.equal(packPrice);
+    });
 
-    expect(totalStickers).to.equal(totalAmount);
-    expect(registeredStickers).to.equal(amounts.length);
+    it('Should fail to buy more than the available packs', async () => {
+      try {
+        await pixelCup.mintPacks(userA.address, totalPacks + 1, {
+          value: packPrice.mul(totalPacks + 1),
+        });
+      } catch (err) {
+        expect(err.message).to.include('Not enough packs left')
+      }
+    })
+
+    it('Should fail with insuficient funds', async () => {
+      try {
+        await pixelCup.mintPacks(userA.address, 2, {
+          value: packPrice,
+        });
+      } catch (err) {
+        expect(err.message).to.include('Insufficient funds')
+      } 
+    });
+
+    it('Should mint pack(s) on the wallet', async () => {
+      const packsToMint = 2;
+      const totalPrice = packPrice.mul(packsToMint);
+      const mintedPacks = await pixelCup.mintedPacks();
+      await pixelCup.mintPacks(userA.address, packsToMint, {
+        value: totalPrice,
+      });
+      
+      // User pack balance
+      const packBalance = await pixelCup.packBalance(userA.address);
+      expect(packBalance).to.equal(packsToMint, 'Packs to mint');
+
+      // Minted packs counter
+      const newMintedPacks = await pixelCup.mintedPacks();
+      expect(newMintedPacks).to.equal(mintedPacks.add(packsToMint));
+
+      // Balances
+      const contractBalance = await provider.getBalance(pixelCup.address);
+      const poolBalance = await pixelCup.prizePoolBalance();
+      const ownerBalance = await pixelCup.ownerBalance();
+      expect(contractBalance).to.equal(totalPrice, 'Contract balance');
+      expect(poolBalance).to.equal(totalPrice.div(2), 'Pool balance');
+      expect(ownerBalance).to.equal(totalPrice.div(2), 'Owner balance');
+    });
   });
 
-  it('Should mint pack(s) on the wallet', async () => {
-    const packsToMint = chance.integer({ min: 1, max: 10 });
-    const packPrice = await pixelCup.packPrice();
-    const totalPrice = ethers.utils.formatEther(packPrice.mul(packsToMint));
-    const totalPriceWei = ethers.utils.parseEther(totalPrice.toString());
-    await pixelCup.mintPacks(userA.address, packsToMint, {
-      value: totalPriceWei,
+  describe('Open packs', () => {
+    it('Should check if opening pack is enabled', async () => {
+      try {
+        await pixelCup.connect(userB).openPacks(1);
+      } catch (error) {
+        expect(error.message).to.include('This function is not yet enabled!');
+      }
+    });
+
+    it('Should only allow the owner to enable open packs', async () => {
+      try {
+        await pixelCup.connect(userB).enableOpenPacks(true);
+      } catch (error) {
+        expect(error.message).to.include('Ownable: caller is not the owner')
+      }
+      await pixelCup.enableOpenPacks(true);
+    });
+
+    it('Should check that only EOA can open packs', async () => {
+      const Contract = await ethers.getContractFactory("PixelCup");
+      const anotherContract = await Contract.deploy(
+        'ipfs://{id}.json',
+        totalPacks,
+        1,
+        stickersPerPack,
+        maxWinners,
+        totalCountries,
+        packPrice
+      );
+
+      try {
+        // We need to impersonate another contract to trigger the onlyEoa
+        // Credit to this answer
+        // https://ethereum.stackexchange.com/questions/122959/call-a-smart-contract-function-with-another-deployed-smart-contract-address-as
+        await hre.network.provider.request({
+          method: "hardhat_impersonateAccount",
+          params: [anotherContract.address],
+        });
+        const signer = await ethers.getSigner(anotherContract.address);
+        await signer.sendTransaction({to: anotherContract.address, value: ethers.utils.parseEther('1')})
+        await pixelCup.connect(signer).openPacks(1);
+      } catch (error) {
+        await hre.network.provider.request({
+          method: "hardhat_stopImpersonatingAccount",
+          params: [anotherContract.address],
+        });
+        expect(error.message).to.include('Not EOA');
+      }
+    });
+
+    it('Should fail if user doesnt have enough pack balance', async () => {
+      try {
+        await pixelCup.connect(userB).openPacks(10);
+      } catch (error) {
+        expect(error.message).to.include('burn amount exceeds balance');
+      }
+    });
+
+    it('Should open the pack for stickers', async () => {
+      const packsToMint = 2;
+      await pixelCup.mintPacks(userB.address, packsToMint, {
+        value: packPrice.mul(packsToMint),
+      });
+      const totalStickersMinted = packsToMint * stickersPerPack;
+      
+      // Check the function return list of stickers
+      const totalStickersPrev = await pixelCup.connect(userB).callStatic.openPacks(packsToMint);
+      expect(totalStickersPrev.length).to.equal(totalStickersMinted);
+      
+      const tx = await pixelCup.connect(userB).openPacks(packsToMint);
+      const { events } = await tx.wait();
+      // Burn pack
+      expect(events[0].args.from).to.equal(userB.address);
+      expect(events[0].args.to).to.equal(ethers.constants.AddressZero);
+      expect(events[0].args.id).to.equal(1);
+
+      // Stickers minted
+      const packsOpened = events.filter(({event}) => event === 'PackOpened');
+      expect(packsOpened.length).to.equal(packsToMint)
+      let totalMinted = 0;
+      packsOpened.forEach((pack) => {
+        const { args: { _stickers } } = pack
+        totalMinted += _stickers.length;
+        expect(_stickers.length).to.equal(stickersPerPack);
+        userBstickers.push(..._stickers);
+      });
+      expect(totalMinted).to.equal(totalStickersMinted)
+    });
+  });
+
+  describe('Trades', () => {
+    let tradeIndex;
+
+    it('Should fail if starting a trade with a pack', async () => {
+      try {
+        const stickerReq = userBstickers[0];
+        const [reqCountry, reqType] = stickerReq.toString();
+        await pixelCup.connect(userA).startTrade(
+          1, Number(reqCountry), Number(reqType), 0
+        );
+      } catch (err) {
+        expect(err.message).to.include('Can not trade packs');
+      }
+    });
+
+    it('Should fail if starting a trade with invalid country', async () => {
+      try {
+        const stickerReq = userBstickers[0];
+        const [reqCountry ,reqType] = stickerReq.toString();
+        await pixelCup.connect(userA).startTrade(
+          stickerReq, Number(reqCountry) + totalCountries, Number(reqType), 0
+        );
+      } catch (err) {
+        expect(err.message).to.include('Invalid country');
+      }
+    });
+
+    it('Should fail if starting a trade with invalid type', async () => {
+      try {
+        const stickerReq = userBstickers[0];
+        const [reqCountry] = stickerReq.toString();
+        await pixelCup.connect(userA).startTrade(
+          stickerReq, Number(reqCountry), 4, 0
+        );
+      } catch (err) {
+        expect(err.message).to.include('Invalid type');
+      }
+    })
+
+    it('Should make a trade with any shirt number', async () => {
+      // Get some stickers for user A
+      const tx = await pixelCup.connect(userA).openPacks(1);
+      const { events } = await tx.wait()
+      const { args: { _stickers } } = events.find(({event}) => event === 'PackOpened');
+      userAstickers.push(..._stickers);
+
+      // User A offers this sticker
+      const stickerOffered = userAstickers[0];
+
+      // Pick a sticker from user B to make the required trade
+      const stickerReq = userBstickers[0];
+      const [reqCountry, reqType] = stickerReq.toString();
+
+      // Balance before starting trade
+      const [preOfferA, contractBalance] = await pixelCup.balanceOfBatch(
+        [userA.address, pixelCup.address],
+        [stickerOffered, stickerOffered]
+      );
+
+      // The return-value of a non-constant (neither pure nor view) function is 
+      // available only when the function is called on-chain 
+      // https://ethereum.stackexchange.com/questions/88119/i-see-no-way-to-obtain-the-return-value-of-a-non-view-function-ethers-js      
+      const tradeIndex = await pixelCup.connect(userA).callStatic.startTrade(
+        stickerOffered, Number(reqCountry), Number(reqType), 0
+      );
+      // Now call for real
+      await pixelCup.connect(userA).startTrade(
+        stickerOffered, Number(reqCountry), Number(reqType), 0
+      );
+      
+      // Total trades test
+      const totalTrades = await pixelCup.totalTrades();
+      expect(totalTrades).to.equal(1);
+      
+      // Balance after trade
+      const [newOfferA, newContractBalance] = await pixelCup.balanceOfBatch(
+        [userA.address, pixelCup.address],
+        [stickerOffered, stickerOffered]
+      );
+      expect(preOfferA.toNumber() - 1).to.equal(newOfferA.toNumber());
+      expect(newContractBalance.toNumber()).to.equal(contractBalance.toNumber() + 1);
+
+      // Get trade details
+      const tradeDetails = await pixelCup.tradeDetails(tradeIndex);
+      expect(tradeDetails.offerId).to.equal(stickerOffered, 'offerId');
+      expect(tradeDetails.reqCountry).to.equal(reqCountry, 'reqCountry');
+      expect(tradeDetails.reqType).to.equal(reqType, 'reqType');
+      expect(tradeDetails.reqNumber.toNumber()).to.equal(0, 'reqNumber');
+
+      // Get the number of the required sticker
+      const [, , number1, number2] = stickerReq.toString();
+      const stickerReqNumber = Number(`${number1}${number2}`);
+
+      // Balance before completing 
+      const [preReqA, preOfferB, preReqB] = await pixelCup.balanceOfBatch(
+        [userA.address, userB.address, userB.address],
+        [stickerReq, stickerOffered, stickerReq]
+      );
+      
+      // Complete trade
+      await pixelCup.connect(userB).completeTrade(tradeIndex, stickerReqNumber);
+
+      // Balances after trade
+      const [newReqA, newOfferB, newReqB] = await pixelCup.balanceOfBatch(
+        [userA.address, userB.address, userB.address],
+        [stickerReq, stickerOffered, stickerReq]
+      );
+
+      // Increment the user A requested sticker balance
+      expect(newReqA.toNumber()).to.equal(preReqA.toNumber() + 1);
+      // Increment the user B received sticker balance
+      expect(newOfferB.toNumber()).to.equal(preOfferB.toNumber() + 1);
+      // Reduce the balance of the user B 
+      expect(newReqB.toNumber()).to.equal(preReqB.toNumber() - 1);
+    });
+
+    it('Should make a trade for a specific shirt number', async () => {
+      const stickerOffered = getStickerProps(userBstickers[1]);
+      const stickerReq = getStickerProps(userAstickers[1]);
+
+      const tradeIndex = await pixelCup.connect(userB).callStatic.startTrade(
+        stickerOffered.id, stickerReq.country, stickerReq.type, stickerReq.number
+      );
+      await pixelCup.connect(userB).startTrade(
+        stickerOffered.id, stickerReq.country, stickerReq.type, stickerReq.number
+      );
+      // Dummy trade to test ownerTrades
+      const tradeToCancel = await pixelCup.connect(userB).callStatic.startTrade(
+        getStickerProps(userBstickers[2]).id, stickerReq.country, stickerReq.type, stickerReq.number
+      );
+      await pixelCup.connect(userB).startTrade(
+        getStickerProps(userBstickers[2]).id, stickerReq.country, stickerReq.type, stickerReq.number
+      );
+      await pixelCup.connect(userA).startTrade(
+        getStickerProps(userAstickers[2]).id, stickerOffered.country, stickerOffered.type, stickerOffered.number
+      );
+
+      const ownerTrades = await pixelCup.ownerTrades(userB.address);
+      expect(ownerTrades).to.have.length(2);
+
+      // Cancel a trade
+      try {
+        await pixelCup.connect(userA).cancelTrade(tradeToCancel);  
+      } catch (err) {
+        expect(err.message).to.include('Only the trade owner can cancel');
+      }
+      await pixelCup.connect(userB).cancelTrade(tradeToCancel);
+      const ownerTradesAfterCancel = await pixelCup.ownerTrades(userB.address);
+      expect(ownerTradesAfterCancel).to.have.length(1);
+      expect(ownerTradesAfterCancel[0].index).to.equal(tradeIndex);
+
+      try {
+        await pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number + 1);
+      } catch (e) {
+        expect(e.message).to.include('Shirt numbers do not match');
+      }
+
+      // Compelte trade
+      await pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number);
+      const ownerTradesAfterComplete = await pixelCup.ownerTrades(userB.address);
+      expect(ownerTradesAfterComplete).to.have.length(0);
+    })
+  });
+
+  describe('Claim prize', () => {
+    async function completeAlbum(user) {
+      const album = {};
+      for(c = 1; c <= totalCountries; c++) {
+        for(t = 1; t <= totalTypes; t++) {
+          album[`${c}${t}`] = false;
+        }
+      }
+      function albumCompleted(address) {
+        return Object.keys(album).filter(k => !album[k]).length === 0;
+      }
+      while(!albumCompleted(user.address)) {
+        const packsToMint = 1; 
+        await pixelCup.mintPacks(user.address, packsToMint, {
+          value: packPrice.mul(packsToMint),
+        });
+        const tx = await pixelCup.connect(user).openPacks(packsToMint);
+        const { events } = await tx.wait();
+        const packs = events.filter(({event}) => event === 'PackOpened');
+        packs.forEach((pack) => {
+          const { args: { _stickers } } = pack
+          _stickers.forEach(sticker => {
+            const props = getStickerProps(sticker);
+            album[`${props.country}${props.type}`] = sticker;
+          });
+        });
+      }
+      return Object.values(album);
+    };
+
+    it('Should fail to claim if not enable', async () => {
+      await pixelCup.enableOpenPacks(false);
+      const postShirts = [];
+      for(c = 0; c < totalCountries; c++) {
+        for(t = 0; t < totalTypes; t++) {
+          postShirts.push(chance.integer({min: 1, max: 23}));
+        }
+      }
+      try {
+        await pixelCup.connect(userA).claimPrize(postShirts);
+      } catch(err) {
+        expect(err.message).to.include('This function is not yet enabled!');
+      }
+      await pixelCup.enableOpenPacks(true);
+    });
+
+    it('Should fail to claim without owning all stickers', async () => {
+      const postShirts = [];
+      for(c = 0; c < totalCountries; c++) {
+        for(t = 0; t < totalTypes; t++) {
+          postShirts.push(chance.integer({min: 1, max: 23}));
+        }
+      }
+      try {
+        await pixelCup.connect(userA).claimPrize(postShirts);
+      } catch(err) {
+        expect(err.message).to.include('burn amount exceeds totalSupply');
+      }
+    });
+
+    it('Should fail to claim with wrong number of stickers', async () => {
+      const postShirts = [];
+      for(c = 0; c < totalCountries + 1; c++) {
+        for(t = 0; t < totalTypes; t++) {
+          postShirts.push(chance.integer({min: 1, max: 23}));
+        }
+      }
+      try {
+        await pixelCup.connect(userA).claimPrize(postShirts);
+      } catch(err) {
+        expect(err.message).to.include('Not the right amount of stickers');
+      }
+    });
+
+    it('Should allow to claim the prize', async () => {
+      const userAalbun = await completeAlbum(userA);
+      const contractBalanceBeforeClaim = await provider.getBalance(pixelCup.address);
+      const poolBalanceBeforeClaim = await pixelCup.prizePoolBalance();
+      const userBalanceBeforeClaim = await ethers.provider.getBalance(userA.address);
+      const tx = await pixelCup.connect(userA).claimPrize(userAalbun.map(s => getStickerProps(s).number))
+      // Event
+      const { events, gasUsed,  effectiveGasPrice} = await tx.wait();
+      const gasFee = gasUsed.mul(effectiveGasPrice);
+      const winnerEvent = events.find(({event}) => event === 'NewWinner');
+      expect(winnerEvent.args._owner).to.equal(userA.address);
+      expect(winnerEvent.args._stickers).to.have.deep.members(userAalbun)
+      
+      // Check sum contract balance
+      const userBalanceAfterClaim = await ethers.provider.getBalance(userA.address);
+      const userWinnedPrize = userBalanceAfterClaim.sub(userBalanceBeforeClaim).add(gasFee);
+      const contractBalanceAfterClaim = await provider.getBalance(pixelCup.address);
+      const ownerBalance = await pixelCup.ownerBalance();
+      const poolBalanceAfterClaim = await pixelCup.prizePoolBalance();
+
+      expect(winnerEvent.args._prize).to.equal(userWinnedPrize);
+      expect(contractBalanceBeforeClaim.div(2)).to.equal(ownerBalance);
+      expect(poolBalanceBeforeClaim.div(2)).to.equal(userWinnedPrize);
+      expect(poolBalanceBeforeClaim.div(2)).to.equal(poolBalanceAfterClaim);
+      
+      // Winner stats
+      expect(await pixelCup.numberOfWinners()).to.equal(1);
+      expect(await pixelCup.winnersRemaining()).to.equal(maxWinners - 1);
+
+      // Cant wint again with same stickers
+      try {
+        await pixelCup.connect(userA).claimPrize(userAalbun.map(s => getStickerProps(s).number));
+      } catch(err) {
+        expect(err.message).to.include('burn amount exceeds totalSupply');
+      }
     });
     
-    const packBalance = await pixelCup.packBalance(userA.address);
-    expect(packBalance).to.equal(packsToMint, 'Packs to mint');
+    it('All pool prize to last winner', async () => {
+      const userBalbum = await completeAlbum(userB);
+      await pixelCup.connect(userB).claimPrize(userBalbum.map(s => getStickerProps(s).number))
+      
+      const userCalbum = await completeAlbum(userC);
+      const poolBalanceBeforeClaim = await pixelCup.prizePoolBalance();
+      const userBalanceBeforeClaim = await ethers.provider.getBalance(userC.address);
+      const tx = await pixelCup.connect(userC).claimPrize(userCalbum.map(s => getStickerProps(s).number))
+      const { events, gasUsed,  effectiveGasPrice} = await tx.wait();
+      const gasFee = gasUsed.mul(effectiveGasPrice);
+      const winnerEvent = events.find(({event}) => event === 'NewWinner');
+      const userBalanceAfterClaim = await ethers.provider.getBalance(userC.address);
+      const userWinnedPrize = userBalanceAfterClaim.sub(userBalanceBeforeClaim).add(gasFee);
+      const poolBalanceAfterClaim = await pixelCup.prizePoolBalance();
 
-    const contractBalance = await provider.getBalance(pixelCup.address);
-    const poolBalance = await pixelCup.prizePoolBalance();
-    const ownerBalance = await pixelCup.ownerBalance();
-    expect(contractBalance).be.equal(totalPriceWei, 'Total price to in Wei');
-    expect(poolBalance).be.equal(totalPriceWei.div(2), 'Pool balance');
-    expect(ownerBalance).be.equal(totalPriceWei.div(2), 'Owner balance');
-  });
-
-  it('Should open the pack for stickers', async () => {
-    const packsToMint = chance.integer({ min: 1, max: 10 });
-    const packPrice = await pixelCup.packPrice();
-    const totalPrice = ethers.utils.formatEther(packPrice.mul(packsToMint));
-    const totalPriceWei = ethers.utils.parseEther(totalPrice.toString());
-    const stickersPerPack = await pixelCup.STICKERS_PER_PACK();
-
-    await pixelCup.mintPacks(userB.address, packsToMint, {
-      value: totalPriceWei,
+      expect(winnerEvent.args._prize).to.equal(userWinnedPrize);
+      expect(userWinnedPrize).to.equal(poolBalanceBeforeClaim);
+      expect(poolBalanceAfterClaim).to.equal(0);
     });
-    const totalStickersMinted = packsToMint * stickersPerPack;
 
-    const tx = await pixelCup.connect(userB).openPacks(packsToMint);
-    const { events } = await tx.wait()
-    // Burn pack
-    expect(events[0].args.from).to.equal(userB.address);
-    expect(events[0].args.to).to.equal(ethers.constants.AddressZero);
-    expect(events[0].args.id).to.equal(1);
-
-    // Sticks minted
-    const packsOpened = events.filter(({event}) => event === 'PackOpened');
-    expect(packsOpened.length).to.equal(packsToMint)
-    let totalMinted = 0;
-    packsOpened.forEach((pack) => {
-      const { args: { _stickers } } = pack
-      totalMinted += _stickers.length;
-      expect(_stickers.length).to.equal(stickersPerPack);
+    it('Should only allow maxWinners', async () => {
+      const postShirts = [];
+      for(c = 0; c < totalCountries; c++) {
+        for(t = 0; t < totalTypes; t++) {
+          postShirts.push(chance.integer({min: 1, max: 23}));
+        }
+      }
+      try {
+        await pixelCup.connect(userD).claimPrize(postShirts);
+      } catch(err) {
+        expect(err.message).to.include('No more winners');
+      }
     });
-    expect(totalMinted).to.equal(totalStickersMinted)
-  });
 
+  });
+  describe('Founder balance', () => {
+    it('Shoould not allow a non owner to withdraw', async () => {
+      try {
+        await pixelCup.connect(userA).withdraw();
+      } catch(err) {
+        expect(err.message).to.include('caller is not the owner');
+      }
+    });
+
+    it('Should allow to withdraw the founder balance', async () => {
+      const userBalanceBefore = await ethers.provider.getBalance(owner.address);
+      const ownerBalanceBefore = await pixelCup.ownerBalance();
+      const tx = await pixelCup.connect(owner).withdraw();
+      const { gasUsed,  effectiveGasPrice} = await tx.wait();
+      const userBalanceAfter = await ethers.provider.getBalance(owner.address);
+      const ownerBalanceAfter = await pixelCup.ownerBalance();
+      const gasFee = gasUsed.mul(effectiveGasPrice);
+      const withdrawAmount = userBalanceAfter.sub(userBalanceBefore).add(gasFee);
+
+      expect(withdrawAmount).to.equal(ownerBalanceBefore);
+      expect(ownerBalanceAfter).to.equal(0);
+    });
+
+    it('Shoould fail to withdraw if there is no balance', async () => {
+      try {
+        await pixelCup.connect(owner).withdraw();
+      } catch(err) {
+        expect(err.message).to.include('No owner balance');
+      }
+    });
+
+    it('Should increase the founder balance once all winners claimed the prize', async () => {
+      const packsToMint = 5;
+      const ownerBalanceBefore = await pixelCup.ownerBalance();
+      await pixelCup.mintPacks(userD.address, packsToMint, {
+        value: packPrice.mul(packsToMint),
+      });
+      const ownerBalanceAfter = await pixelCup.ownerBalance();
+      const poolBalanceAfter = await pixelCup.prizePoolBalance();
+      
+      expect(ownerBalanceAfter.sub(ownerBalanceBefore)).to.equal(packPrice.mul(packsToMint));
+      expect(poolBalanceAfter).to.equal(0);
+    })
+  });
 });
