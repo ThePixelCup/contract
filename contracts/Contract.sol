@@ -22,43 +22,79 @@ contract PixelCup is
 
     // Events
     event PackOpened(address indexed _owner, uint256[] _stickers);
+    event NewWinner(address indexed _owner, uint256 _prize, uint256[] _stickers);
+
+    // Constants
+    uint256 public constant SALES_TO_POOL_PERCENTAGE = 50;
+    uint256 public constant PACK_TOKEN_ID = 1;
+    uint256 public constant TOTAL_TYPES = 3;
 
     // Prize Pool
-    uint256 public constant SALES_TO_POOL_PERCENTAGE = 50;
     uint256 public prizePoolBalance;
     uint256 public ownerBalance;
 
     // Packs
-    uint256 public constant PACK_TOKEN_ID = 1;
-    uint256 public constant TOTAL_PACKS = 102;
-    uint256 public constant STICKERS_PER_PACK = 4;
-    uint256 private _packPrice = 0.01 ether;
+    uint256 public totalPacks;
+    uint256 public stickersPerPack;
+    uint256 public packPrice;
+    uint256 public mintedPacks = 0;
+    bool private _opePacksEnabled = false;
 
     // Stickers
-    uint256 public constant TOTAL_COUNTRIES = 6;
-
-    // Random index assignment
-    uint256 internal nonce = 0;
     struct Sticker {
         uint256 id;
         uint256 amount;
     }
-    Sticker[] public _stickers;
+    Sticker[] private _stickers;
+    uint256 public totalCountries;
 
+    // Random index assignment
+    uint256 internal nonce = 0;
+
+    // Trades
+    struct Trade {
+        address owner;
+        uint256 offerId;
+        uint256 reqCountry;
+        uint256 reqType;
+        uint256 reqNumber;
+        uint256 index;
+    }
+    Trade[] private _trades;
+    
     // Winners
-    uint256 public constant MAX_WINNERS = 10;
+    uint256 public maxWinners;
     mapping(address => bool) public winners;
     Counters.Counter private _numWinners;
 
-    // Que pasa si no llegan al max winners? queda la plata en el contrato hasta que alguien lo haga?
-    // Si
+    modifier onlyEoa() {
+        require(tx.origin == msg.sender, "Not EOA");
+        _;
+    }
 
     /*╔═════════════════════════════╗
       ║         Constructor         ║
       ╚═════════════════════════════╝*/
 
-    constructor(string memory baseURI) ERC1155("") {
-        _setBaseURI(baseURI);
+    constructor(
+        string memory baseURI,
+        uint256 setTotalPacks,
+        uint256 packsToMint,
+        uint256 setStickersPerPack,
+        uint256 setMaxWinners,
+        uint256 setTotalCountries,
+        uint256 setInitialPackPrice
+    ) ERC1155(baseURI) {
+        // Set contract variables
+        totalPacks = setTotalPacks;
+        stickersPerPack = setStickersPerPack;
+        maxWinners = setMaxWinners;
+        totalCountries = setTotalCountries;
+        packPrice = setInitialPackPrice;
+
+        // Mint marketing packs
+        _mint(msg.sender, PACK_TOKEN_ID, packsToMint, "");
+        mintedPacks = packsToMint;
     }
 
     /*╔═════════════════════════════╗
@@ -82,7 +118,7 @@ contract PixelCup is
     }
 
     function winnersRemaining() public view returns (uint256) {
-        return MAX_WINNERS - numberOfWinners();
+        return maxWinners - numberOfWinners();
     }
 
     function packBalance(address owner) public view returns (uint256) {
@@ -90,11 +126,77 @@ contract PixelCup is
     }
 
     function setPackPrice(uint256 value) external onlyOwner {
-        _packPrice = value;
+        packPrice = value;
     }
 
-    function packPrice() public view returns (uint256) {
-        return _packPrice;
+    function startTrade(uint256 offerId, uint256 reqCountry, uint256 reqType, uint256 reqNumber) external returns (uint256) {
+        require(offerId != PACK_TOKEN_ID, "Can not trade packs");
+        require(reqCountry > 0 && reqCountry <= totalCountries, "Invalid country");
+        require(reqType > 0 && reqType <= TOTAL_TYPES, "Invalid type");
+        
+        // Transfer the sticker to the contract for escrow
+        // This will check that the offer sticker is valid and the owner has balance
+        safeTransferFrom(msg.sender, address(this), offerId, 1, "");
+        // Add to the trades table
+        _trades.push(Trade(msg.sender, offerId, reqCountry, reqType, reqNumber, _trades.length));
+        return _trades.length - 1;
+    }
+
+    function completeTrade(uint256 tradeIndex, uint256 shirtNumber) external {
+        Trade storage trade = _trades[tradeIndex];
+        if (trade.reqNumber > 0) {
+            require(trade.reqNumber == shirtNumber, "Shirt numbers do not match");
+        }
+        // Generate the tokenId to complete the trade
+        uint256 tokenId = trade.reqCountry * 1000 + trade.reqType * 100 + shirtNumber;
+        // Trade owner receives the token, will fail if there is no balance or invalid
+        safeTransferFrom(msg.sender, trade.owner, tokenId, 1, "");
+        // Send the sticker hold on escrow
+        IERC1155(address(this)).safeTransferFrom(address(this), msg.sender, trade.offerId, 1, "");
+        delete _trades[tradeIndex];
+    }
+
+    function tradeDetails(uint256 tradeIndex) public view returns(Trade memory) {
+        Trade storage trade = _trades[tradeIndex];
+        return trade;
+    }
+
+    function totalTrades() public view returns(uint256) {
+        return _trades.length;
+    }
+
+    function totalActiveTrades(address owner) public view returns(uint256) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < _trades.length; i++) {
+            if (_trades[i].owner == owner) {
+               count++;
+            }
+        }
+        return count;
+    }
+
+    function ownerTrades(address owner) public view returns(Trade[] memory) {
+        // There is no way to avoid two loops to return a dynamic array
+        uint256 activeTrades = totalActiveTrades(owner);
+        Trade[] memory values = new Trade[](activeTrades);
+        uint256 valuesIndex = 0;
+        for (uint256 i = 0; i < _trades.length; i++) {
+            if (_trades[i].owner == owner) {
+                Trade storage trade = _trades[i];
+                values[valuesIndex] = trade;
+                valuesIndex++;
+            }
+        }
+        
+        return values;
+    }
+
+    function cancelTrade(uint256 tradeIndex) external {
+        Trade memory trade = _trades[tradeIndex];
+        require(trade.owner == msg.sender, "Only the trade owner can cancel");
+        // Return the sticker to the owner
+        IERC1155(address(this)).safeTransferFrom(address(this), msg.sender, trade.offerId, 1, "");
+        delete _trades[tradeIndex];
     }
 
     /*╔═════════════════════════════╗
@@ -107,10 +209,13 @@ contract PixelCup is
         uint256[] memory shirtNumbers,
         uint256[] memory amounts
     ) external onlyOwner {
-        // Check equal lengths
-        // Check registeredStickersRemaining > 0
+        require(
+            countryIds.length == typeIds.length && 
+            typeIds.length == shirtNumbers.length && 
+            shirtNumbers.length == amounts.length,
+            "All arrays should hae same length"
+        );
         for (uint256 i; i < countryIds.length; i++) {
-            // To check that this combination already exists we must make a mapping(tokenId -> bool)
             uint256 tokenId = countryIds[i] *
                 1000 +
                 typeIds[i] *
@@ -125,18 +230,21 @@ contract PixelCup is
         payable
         nonReentrant
     {
-        // started sale? no need, when we deploy we can mint packs
-        // Require that are still packs on sale
-        // max per tx? lets do 10
-
-        // No da vuelto - a mi me parece ok
-        require(msg.value >= _packPrice * amount, "Insufficient funds");
+        require((mintedPacks + amount) < totalPacks, "Not enough packs left");
+        require(msg.value >= packPrice * amount, "Insufficient funds");
 
         _mint(to, PACK_TOKEN_ID, amount, "");
+        mintedPacks += amount;
 
-        // Update balances
-        ownerBalance += (msg.value * (100 - SALES_TO_POOL_PERCENTAGE)) / 100;
-        prizePoolBalance += (msg.value * SALES_TO_POOL_PERCENTAGE) / 100;
+        if (winnersRemaining() > 0) {
+            // Update balances
+            ownerBalance += (msg.value * (100 - SALES_TO_POOL_PERCENTAGE)) / 100;
+            prizePoolBalance += (msg.value * SALES_TO_POOL_PERCENTAGE) / 100;
+        } else {
+            // If there are no more possible winners and somehow we still have
+            // packs left, the revenue goes to the team for future proyects
+            ownerBalance += msg.value;
+        }
     }
 
     /*╔═════════════════════════════╗
@@ -169,21 +277,19 @@ contract PixelCup is
         return stickerIndex;
     }
 
-    function openPacks(uint256 amount) external nonReentrant {
-        // Haya empezado el periodo de apertura? A boolean is enough
-        // Solamente EOAs
-        // chequear que el amount < totalSupply(packTokenId). creo que el burn maneja eso
+    function enableOpenPacks(bool enable) external onlyOwner {
+        _opePacksEnabled = enable;
+    }
 
-        require(
-            balanceOf(msg.sender, PACK_TOKEN_ID) >= amount,
-            "Does not own as many packs"
-        );
+    function openPacks(uint256 amount) external nonReentrant onlyEoa returns(uint256[] memory){
+        require(_opePacksEnabled == true, "This function is not yet enabled!");
 
-        burn(msg.sender, PACK_TOKEN_ID, amount);
-
+        _burn(msg.sender, PACK_TOKEN_ID, amount);
+        
+        uint256[] memory totalOpenedPacks = new uint256[](amount * stickersPerPack);
         for (uint256 i = 0; i < amount; i++) {
-            uint256[] memory packStickers = new uint256[](STICKERS_PER_PACK);
-            for (uint256 j = 0; j < STICKERS_PER_PACK; j++) {
+            uint256[] memory packStickers = new uint256[](stickersPerPack);
+            for (uint256 j = 0; j < stickersPerPack; j++) {
                 // Get random sticker
                 uint256 stickerIndex = randomStickerIndex();
                 // Increment the nonce for the random
@@ -195,9 +301,11 @@ contract PixelCup is
                 _mint(msg.sender, stickerId, 1, "");
                 // For the event
                 packStickers[j] = stickerId;
+                totalOpenedPacks[i * stickersPerPack + j] = stickerId;
             }
             emit PackOpened(msg.sender, packStickers);
         }
+        return totalOpenedPacks;
     }
 
     /*╔═════════════════════════════╗
@@ -205,19 +313,23 @@ contract PixelCup is
       ╚═════════════════════════════╝*/
 
     // shirtNumbersProposed has to be in ascending order
-    function claimPrizeV2(uint256[] calldata shirtNumbersProposed)
+    function claimPrize(uint256[] calldata shirtNumbersProposed)
         external
         nonReentrant
     {
-        // check que length == TOTAL_UNIQUE_STICKERS
-        // Check that pool balance > 0
+        require(
+            shirtNumbersProposed.length == (totalCountries * TOTAL_TYPES),
+            "Not the right amount of stickers"
+        );
+        require(_opePacksEnabled == true, "This function is not yet enabled!");
         require(winnersRemaining() > 0, "No more winners");
 
         uint256 shirtNumberIndex;
-        // 32 countrys + 3 types
-        for (uint256 i = 0; i < TOTAL_COUNTRIES; i++) {
+        uint256[] memory stickersToBurn = new uint256[](shirtNumbersProposed.length);
+
+        for (uint256 i = 0; i < totalCountries; i++) {
             uint256 countryId = i + 1;
-            for (uint256 j = 0; j < 3; j++) {
+            for (uint256 j = 0; j < TOTAL_TYPES; j++) {
                 uint256 typeId = j + 1;
 
                 // Generate the correspondent stickerId with the proposed shirtnumber
@@ -228,36 +340,36 @@ contract PixelCup is
                     shirtNumbersProposed[shirtNumberIndex];
 
                 // Check ownership & Burn token Id
-                require(
-                    balanceOf(msg.sender, tokenId) >= 1,
-                    "Does not own sticker"
-                );
-                burn(msg.sender, tokenId, 1);
-
+                _burn(msg.sender, tokenId, 1);
+                stickersToBurn[shirtNumberIndex] = tokenId;
                 shirtNumberIndex += 1;
             }
         }
 
-        winners[msg.sender] = true;
-
         uint256 prizeAmount;
         if (winnersRemaining() == 1) {
+            // Send remaining balance to last possible winner
             prizeAmount = prizePoolBalance;
         } else {
             prizeAmount = prizePoolBalance / 2;
         }
+        // Send prize
         payable(msg.sender).transfer(prizeAmount);
         prizePoolBalance -= prizeAmount;
+        
+        _numWinners.increment();
+        emit NewWinner(msg.sender, prizeAmount, stickersToBurn);
     }
 
     /*╔═════════════════════════════╗
       ║      Withdraw Functions     ║
       ╚═════════════════════════════╝*/
 
-    function withdraw() external onlyOwner {
+    function withdraw() external onlyOwner nonReentrant {
         require(ownerBalance > 0, "No owner balance");
 
         payable(msg.sender).transfer(ownerBalance);
+        ownerBalance = 0;
     }
 
     /*╔═════════════════════════════╗
@@ -283,5 +395,17 @@ contract PixelCup is
         bytes memory data
     ) internal virtual override(ERC1155, ERC1155Pausable, ERC1155Supply) {
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes memory) public virtual returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] memory, uint256[] memory, bytes memory) public virtual returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    function onERC721Received(address, address, uint256, bytes memory) public virtual returns (bytes4) {
+        return this.onERC721Received.selector;
     }
 }
