@@ -5,7 +5,8 @@
     "deploy": "npx thirdweb@latest deploy",
     "release": "npx thirdweb@latest release",
     "test": "npx hardhat test",
-    "coverage": "npx hardhat coverage --network localhost"
+    "coverage": "npx hardhat coverage --network localhost",
+    "gas": "REPORT_GAS=true npx hardhat test"
   },
   "devDependencies": {
     "@defi-wonderland/smock": "^2.3.0",

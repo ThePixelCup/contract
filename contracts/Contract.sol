@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol";
@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Pausable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 contract PixelCup is
@@ -29,6 +30,11 @@ contract PixelCup is
     uint256 public constant PACK_TOKEN_ID = 1;
     uint256 public constant TOTAL_TYPES = 3;
 
+    // URI
+    string private _revealedPath;
+    bool private _revealed = false;
+    string private _contractURI;
+
     // Prize Pool
     uint256 public prizePoolBalance;
     uint256 public ownerBalance;
@@ -43,10 +49,11 @@ contract PixelCup is
     // Stickers
     struct Sticker {
         uint256 id;
-        uint256 amount;
+        uint256 amountRemaining;
     }
     Sticker[] private _stickers;
     uint256 public totalCountries;
+    uint256 public stickersRemaining = 0;
 
     // Random index assignment
     uint256 internal nonce = 0;
@@ -78,6 +85,7 @@ contract PixelCup is
 
     constructor(
         string memory baseURI,
+        string memory setContractURI,
         uint256 setTotalPacks,
         uint256 packsToMint,
         uint256 setStickersPerPack,
@@ -91,6 +99,7 @@ contract PixelCup is
         maxWinners = setMaxWinners;
         totalCountries = setTotalCountries;
         packPrice = setInitialPackPrice;
+        _contractURI = setContractURI;
 
         // Mint marketing packs
         _mint(msg.sender, PACK_TOKEN_ID, packsToMint, "");
@@ -100,14 +109,6 @@ contract PixelCup is
     /*╔═════════════════════════════╗
       ║           Counters          ║
       ╚═════════════════════════════╝*/
-
-    function stickersRemaining() public view returns (uint256) {
-        uint256 acc = 0;
-        for(uint256 s = 0; s < _stickers.length; s++) {
-            acc += _stickers[s].amount;
-        }
-        return acc;
-    }
 
     function registeredStickers() public view returns (uint256) {
         return _stickers.length;
@@ -222,6 +223,7 @@ contract PixelCup is
                 100 +
                 shirtNumbers[i];
             _stickers.push(Sticker(tokenId, amounts[i]));
+            stickersRemaining += amounts[i];
         }
     }
 
@@ -251,8 +253,7 @@ contract PixelCup is
       ║          Open Pack          ║
       ╚═════════════════════════════╝*/
 
-    function randomStickerIndex() internal view returns (uint256) {
-        uint256 totalSize = stickersRemaining(); //408
+    function randomStickerIndex(uint256 totalSize) internal view returns (uint256) {
         uint256 index = uint256(
             keccak256(
                 abi.encodePacked(
@@ -268,7 +269,7 @@ contract PixelCup is
         uint256 acc = 0;
         uint256 stickerIndex;
         for(uint256 s = 0; s < _stickers.length; s++) {
-            acc += _stickers[s].amount;
+            acc += _stickers[s].amountRemaining;
             if (randomIndex <= acc) {
                 stickerIndex = s;
                 break;
@@ -282,7 +283,7 @@ contract PixelCup is
     }
 
     function openPacks(uint256 amount) external nonReentrant onlyEoa returns(uint256[] memory){
-        require(_opePacksEnabled == true, "This function is not yet enabled!");
+        require(_opePacksEnabled, "This function is not yet enabled!");
 
         _burn(msg.sender, PACK_TOKEN_ID, amount);
         
@@ -291,20 +292,22 @@ contract PixelCup is
             uint256[] memory packStickers = new uint256[](stickersPerPack);
             for (uint256 j = 0; j < stickersPerPack; j++) {
                 // Get random sticker
-                uint256 stickerIndex = randomStickerIndex();
+                uint256 stickerCount = i * stickersPerPack + j;
+                uint256 stickerIndex = randomStickerIndex(stickersRemaining - stickerCount - 1);
                 // Increment the nonce for the random
                 nonce++;
                 // Reduce amount on sticker
                 uint256 stickerId = _stickers[stickerIndex].id;
-                _stickers[stickerIndex].amount--;
+                _stickers[stickerIndex].amountRemaining--;
                 // Mint an extra amount of the sticker
                 _mint(msg.sender, stickerId, 1, "");
                 // For the event
                 packStickers[j] = stickerId;
-                totalOpenedPacks[i * stickersPerPack + j] = stickerId;
+                totalOpenedPacks[stickerCount] = stickerId;
             }
             emit PackOpened(msg.sender, packStickers);
         }
+        stickersRemaining -= amount * stickersPerPack;
         return totalOpenedPacks;
     }
 
@@ -376,6 +379,16 @@ contract PixelCup is
       ║      Override Functions     ║
       ╚═════════════════════════════╝*/
 
+    function setRevealedPath(string memory path) external onlyOwner {
+        require(!_revealed, "Reveal path has been set");
+        _revealedPath = path;
+        _revealed = true;
+    }
+
+    function contractURI() public view returns (string memory) {
+        return _contractURI;
+    }
+    
     function uri(uint256 tokenId)
         public
         view
@@ -383,7 +396,11 @@ contract PixelCup is
         override(ERC1155, ERC1155URIStorage)
         returns (string memory tokenURI)
     {
-        tokenURI = super.uri(tokenId);
+        if (_revealed) {
+            tokenURI = string.concat(_revealedPath, Strings.toString(tokenId));
+        } else {
+            tokenURI = super.uri(tokenId);
+        }
     }
 
     function _beforeTokenTransfer(

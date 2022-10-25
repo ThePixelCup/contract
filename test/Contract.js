@@ -28,9 +28,12 @@ describe('Contract', () => {
   describe('Setup', () => {
     it('Should deploy the contract', async () => {
       ([owner, userA, userB, userC, userD] = await ethers.getSigners());
+      const baseUri = 'ipfs://QmUGSCB1ZKxNtqB2atogJYgoYoAq7qXM81kH45esbBkZSe';
+      const contractUri = 'ipfs://QmUGYgoYoAq7qXM81kH45esbBkZSeSCB1ZKxNtqB2atogJ';
       const Contract = await ethers.getContractFactory("PixelCup");
       pixelCup = await Contract.deploy(
-        'ipfs://{id}.json',
+        baseUri,
+        contractUri,
         totalPacks,
         marketingPacks,
         stickersPerPack,
@@ -50,9 +53,11 @@ describe('Contract', () => {
       expect(await pixelCup.packBalance(owner.address)).to.equal(marketingPacks);
       expect(await pixelCup.mintedPacks()).to.equal(marketingPacks);
 
-      // Uri
-      const uri = await pixelCup.uri(1);
-      expect(uri).to.equal('ipfs://{id}.json');
+      // Token Uri
+      expect(await pixelCup.uri(1)).to.equal(baseUri);
+      
+      // Contract Uri for OpenSea
+      expect(await pixelCup.contractURI()).to.equal(contractUri);
     });
 
     it('Should register stickers', async () => {
@@ -96,17 +101,31 @@ describe('Contract', () => {
     });
   });
 
+  describe('Token URI', () => {
+    it('Should not let you set the revealed path', () => 
+      expect(pixelCup.connect(userA).setRevealedPath('ipfs://xxx'))
+        .to.be.revertedWith('Ownable: caller is not the owner'));
+
+    it('Should set the revealed path', async () => {
+      const path = 'ipfs://QmeqevnZ7RSpnveBZrLLcmNRUUtuk3DkbWvU1C1SqbcAzm/';
+      const tokenId = chance.integer({min: 1100, max: 5300});
+      await pixelCup.setRevealedPath(path);
+      expect(await pixelCup.uri(tokenId)).to.equal(`${path}${tokenId}`);
+    });
+
+    it('Should fail to let you udpate the reveal path', () =>
+      expect(pixelCup.setRevealedPath('ipfs://xxx'))
+        .to.be.revertedWith('Reveal path has been set'));
+  });
+
   describe('Packs', () => {
+    it('Should fail to update pack price if not owner', () => 
+       expect(pixelCup.connect(userA).setPackPrice(ethers.utils.parseEther('0.02')))
+        .to.be.revertedWith('Ownable: caller is not the owner'));
+
     it('Should update the pack price', async () => {
       expect(ethers.utils.formatEther(packPrice)).to.equal('0.01');
       const newPrice = ethers.utils.parseEther('0.02');
-
-      try {
-        // Fail if not owner
-        await pixelCup.connect(userA).setPackPrice(newPrice);
-      } catch (err) {
-        expect(err.message).to.include('caller is not the owner');
-      }
 
       await pixelCup.connect(owner).setPackPrice(newPrice);
       packPrice = await pixelCup.packPrice();
@@ -142,20 +161,15 @@ describe('Contract', () => {
       });
       
       // User pack balance
-      const packBalance = await pixelCup.packBalance(userA.address);
-      expect(packBalance).to.equal(packsToMint, 'Packs to mint');
+      expect(await pixelCup.packBalance(userA.address)).to.equal(packsToMint, 'Packs to mint');
 
       // Minted packs counter
-      const newMintedPacks = await pixelCup.mintedPacks();
-      expect(newMintedPacks).to.equal(mintedPacks.add(packsToMint));
+      expect(await pixelCup.mintedPacks()).to.equal(mintedPacks.add(packsToMint));
 
       // Balances
-      const contractBalance = await provider.getBalance(pixelCup.address);
-      const poolBalance = await pixelCup.prizePoolBalance();
-      const ownerBalance = await pixelCup.ownerBalance();
-      expect(contractBalance).to.equal(totalPrice, 'Contract balance');
-      expect(poolBalance).to.equal(totalPrice.div(2), 'Pool balance');
-      expect(ownerBalance).to.equal(totalPrice.div(2), 'Owner balance');
+      expect(await provider.getBalance(pixelCup.address)).to.equal(totalPrice, 'Contract balance');
+      expect(await pixelCup.prizePoolBalance()).to.equal(totalPrice.div(2), 'Pool balance');
+      expect(await pixelCup.ownerBalance()).to.equal(totalPrice.div(2), 'Owner balance');
     });
   });
 
@@ -181,6 +195,7 @@ describe('Contract', () => {
       const Contract = await ethers.getContractFactory("PixelCup");
       const anotherContract = await Contract.deploy(
         'ipfs://{id}.json',
+        'ipfs://contract.json',
         totalPacks,
         1,
         stickersPerPack,
@@ -218,7 +233,7 @@ describe('Contract', () => {
     });
 
     it('Should open the pack for stickers', async () => {
-      const packsToMint = 2;
+      const packsToMint = 1;
       await pixelCup.mintPacks(userB.address, packsToMint, {
         value: packPrice.mul(packsToMint),
       });
