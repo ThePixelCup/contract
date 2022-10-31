@@ -34,5 +34,6 @@
   "dependencies": {
     "@openzeppelin/contracts": "^4.7.3",
     "@thirdweb-dev/contracts": "^3"
-  }
+  },
+  "version": "1.0.0"
 }
