@@ -14,7 +14,7 @@ const getStickerProps = (id) => {
   }
 };
 
-describe('Contract', () => {
+describe('The Pixel Cup', () => {
   let totalPacks = 225,
       stickersPerPack = 4,
       maxWinners = 3,
@@ -78,11 +78,9 @@ describe('Contract', () => {
       const totalAmount = amounts.reduce((p, a) => p + a, 0);
       const step = stickersPerPack;
 
-      try{
-        await pixelCup.connect(userA).registerStickers(countryIds, typeIds, shirtNumbers, amounts);
-      } catch(err) {
-        expect(err.message).to.include('caller is not the owner');
-      }
+      await expect(pixelCup.connect(userA)
+        .registerStickers(countryIds, typeIds, shirtNumbers, amounts)).to.be
+        .revertedWith('Ownable: caller is not the owner');
 
       // Do it in batches as it will be in mainnet
       for (let j = step; j <= (amounts.length + step); j+=step) {
@@ -93,11 +91,9 @@ describe('Contract', () => {
           amounts.slice(j - step, j)
         );
       }
-      const totalStickers = await pixelCup.stickersRemaining();
-      const registeredStickers = await pixelCup.registeredStickers();
 
-      expect(totalStickers).to.equal(totalAmount);
-      expect(registeredStickers).to.equal(amounts.length);
+      expect(await pixelCup.stickersRemaining()).to.equal(totalAmount);
+      expect(await pixelCup.registeredStickers()).to.equal(amounts.length);
     });
   });
 
@@ -132,25 +128,15 @@ describe('Contract', () => {
       expect(newPrice).to.deep.equal(packPrice);
     });
 
-    it('Should fail to buy more than the available packs', async () => {
-      try {
-        await pixelCup.mintPacks(userA.address, totalPacks + 1, {
-          value: packPrice.mul(totalPacks + 1),
-        });
-      } catch (err) {
-        expect(err.message).to.include('Not enough packs left')
-      }
-    })
+    it('Should fail to buy more than the available packs', async () => 
+      expect(pixelCup.mintPacks(userA.address, totalPacks + 1, {
+        value: packPrice.mul(totalPacks + 1),
+      })).to.be.revertedWith('Not enough packs left'));
 
-    it('Should fail with insuficient funds', async () => {
-      try {
-        await pixelCup.mintPacks(userA.address, 2, {
-          value: packPrice,
-        });
-      } catch (err) {
-        expect(err.message).to.include('Insufficient funds')
-      } 
-    });
+    it('Should fail with insuficient funds', async () => 
+      expect(pixelCup.mintPacks(userA.address, 2, {
+        value: packPrice,
+      })).to.be.revertedWith('Insufficient funds'));
 
     it('Should mint pack(s) on the wallet', async () => {
       const packsToMint = 2;
@@ -174,24 +160,16 @@ describe('Contract', () => {
   });
 
   describe('Open packs', () => {
-    it('Should check if opening pack is enabled', async () => {
-      try {
-        await pixelCup.connect(userB).openPacks(1);
-      } catch (error) {
-        expect(error.message).to.include('This function is not yet enabled!');
-      }
-    });
+    it('Should check if opening pack is enabled', async () => 
+      expect(pixelCup.connect(userB).openPacks(1))
+        .to.be.revertedWith('This function is not yet enabled!'));
 
-    it('Should only allow the owner to enable open packs', async () => {
-      try {
-        await pixelCup.connect(userB).enableOpenPacks(true);
-      } catch (error) {
-        expect(error.message).to.include('Ownable: caller is not the owner')
-      }
-      await pixelCup.enableOpenPacks(true);
-    });
+    it('Should only allow the owner to enable open packs', async () => 
+      expect(pixelCup.connect(userB).enableOpenPacks(true))
+        .to.be.revertedWith('Ownable: caller is not the owner'));
 
     it('Should check that only EOA can open packs', async () => {
+      await pixelCup.enableOpenPacks(true);
       const Contract = await ethers.getContractFactory("PixelCup");
       const anotherContract = await Contract.deploy(
         'ipfs://{id}.json',
@@ -224,13 +202,9 @@ describe('Contract', () => {
       }
     });
 
-    it('Should fail if user doesnt have enough pack balance', async () => {
-      try {
-        await pixelCup.connect(userB).openPacks(10);
-      } catch (error) {
-        expect(error.message).to.include('burn amount exceeds balance');
-      }
-    });
+    it('Should fail if user doesnt have enough pack balance', async () => 
+      expect(pixelCup.connect(userB).openPacks(10))
+        .to.be.revertedWith('ERC1155: burn amount exceeds balance'));
 
     it('Should open the pack for stickers', async () => {
       const packsToMint = 1;
@@ -268,39 +242,27 @@ describe('Contract', () => {
     let tradeIndex;
 
     it('Should fail if starting a trade with a pack', async () => {
-      try {
-        const stickerReq = userBstickers[0];
-        const [reqCountry, reqType] = stickerReq.toString();
-        await pixelCup.connect(userA).startTrade(
-          1, Number(reqCountry), Number(reqType), 0
-        );
-      } catch (err) {
-        expect(err.message).to.include('Can not trade packs');
-      }
+      const stickerReq = userBstickers[0];
+      const [reqCountry, reqType] = stickerReq.toString();
+      await expect(pixelCup.connect(userA).startTrade(
+        1, Number(reqCountry), Number(reqType), 0
+      )).to.be.revertedWith('Can not trade packs');
     });
 
     it('Should fail if starting a trade with invalid country', async () => {
-      try {
         const stickerReq = userBstickers[0];
         const [reqCountry ,reqType] = stickerReq.toString();
-        await pixelCup.connect(userA).startTrade(
+        await expect(pixelCup.connect(userA).startTrade(
           stickerReq, Number(reqCountry) + totalCountries, Number(reqType), 0
-        );
-      } catch (err) {
-        expect(err.message).to.include('Invalid country');
-      }
+        )).to.be.revertedWith('Invalid country');
     });
 
     it('Should fail if starting a trade with invalid type', async () => {
-      try {
-        const stickerReq = userBstickers[0];
-        const [reqCountry] = stickerReq.toString();
-        await pixelCup.connect(userA).startTrade(
-          stickerReq, Number(reqCountry), 4, 0
-        );
-      } catch (err) {
-        expect(err.message).to.include('Invalid type');
-      }
+      const stickerReq = userBstickers[0];
+      const [reqCountry] = stickerReq.toString();
+      await expect(pixelCup.connect(userA).startTrade(
+        stickerReq, Number(reqCountry), 4, 0
+      )).to.be.revertedWith('Invalid type');
     })
 
     it('Should make a trade with any shirt number', async () => {
@@ -405,26 +367,19 @@ describe('Contract', () => {
       expect(ownerTrades).to.have.length(2);
 
       // Cancel a trade
-      try {
-        await pixelCup.connect(userA).cancelTrade(tradeToCancel);  
-      } catch (err) {
-        expect(err.message).to.include('Only the trade owner can cancel');
-      }
+      await expect(pixelCup.connect(userA).cancelTrade(tradeToCancel))
+        .to.be.revertedWith('Only the trade owner can cancel');
       await pixelCup.connect(userB).cancelTrade(tradeToCancel);
       const ownerTradesAfterCancel = await pixelCup.ownerTrades(userB.address);
       expect(ownerTradesAfterCancel).to.have.length(1);
       expect(ownerTradesAfterCancel[0].index).to.equal(tradeIndex);
 
-      try {
-        await pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number + 1);
-      } catch (e) {
-        expect(e.message).to.include('Shirt numbers do not match');
-      }
+      await expect(pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number + 1))
+        .to.be.revertedWith('Shirt numbers do not match');
 
       // Compelte trade
       await pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number);
-      const ownerTradesAfterComplete = await pixelCup.ownerTrades(userB.address);
-      expect(ownerTradesAfterComplete).to.have.length(0);
+      expect(await pixelCup.ownerTrades(userB.address)).to.have.length(0);
     })
   });
 
@@ -466,11 +421,8 @@ describe('Contract', () => {
           postShirts.push(chance.integer({min: 1, max: 23}));
         }
       }
-      try {
-        await pixelCup.connect(userA).claimPrize(postShirts);
-      } catch(err) {
-        expect(err.message).to.include('This function is not yet enabled!');
-      }
+      await expect(pixelCup.connect(userA).claimPrize(postShirts))
+        .to.be.revertedWith('This function is not yet enabled!');
       await pixelCup.enableOpenPacks(true);
     });
 
@@ -481,11 +433,8 @@ describe('Contract', () => {
           postShirts.push(chance.integer({min: 1, max: 23}));
         }
       }
-      try {
-        await pixelCup.connect(userA).claimPrize(postShirts);
-      } catch(err) {
-        expect(err.message).to.include('burn amount exceeds totalSupply');
-      }
+      await expect(pixelCup.connect(userA).claimPrize(postShirts))
+        .to.be.revertedWith('ERC1155: burn amount exceeds totalSupply');
     });
 
     it('Should fail to claim with wrong number of stickers', async () => {
@@ -495,11 +444,8 @@ describe('Contract', () => {
           postShirts.push(chance.integer({min: 1, max: 23}));
         }
       }
-      try {
-        await pixelCup.connect(userA).claimPrize(postShirts);
-      } catch(err) {
-        expect(err.message).to.include('Not the right amount of stickers');
-      }
+      await expect(pixelCup.connect(userA).claimPrize(postShirts))
+        .to.be.revertedWith('Not the right amount of stickers');
     });
 
     it('Should allow to claim the prize', async () => {
@@ -531,11 +477,8 @@ describe('Contract', () => {
       expect(await pixelCup.winnersRemaining()).to.equal(maxWinners - 1);
 
       // Cant wint again with same stickers
-      try {
-        await pixelCup.connect(userA).claimPrize(userAalbun.map(s => getStickerProps(s).number));
-      } catch(err) {
-        expect(err.message).to.include('burn amount exceeds totalSupply');
-      }
+      await expect(pixelCup.connect(userA).claimPrize(userAalbun.map(s => getStickerProps(s).number)))
+        .to.be.revertedWith('ERC1155: burn amount exceeds totalSupply');
     });
     
     it('All pool prize to last winner', async () => {
@@ -565,22 +508,15 @@ describe('Contract', () => {
           postShirts.push(chance.integer({min: 1, max: 23}));
         }
       }
-      try {
-        await pixelCup.connect(userD).claimPrize(postShirts);
-      } catch(err) {
-        expect(err.message).to.include('No more winners');
-      }
+      await expect(pixelCup.connect(userD).claimPrize(postShirts))
+        .to.be.revertedWith('No more winners');
     });
 
   });
   describe('Founder balance', () => {
-    it('Shoould not allow a non owner to withdraw', async () => {
-      try {
-        await pixelCup.connect(userA).withdraw();
-      } catch(err) {
-        expect(err.message).to.include('caller is not the owner');
-      }
-    });
+    it('Shoould not allow a non owner to withdraw', async () => 
+      expect(pixelCup.connect(userA).withdraw())
+        .to.be.revertedWith('Ownable: caller is not the owner'));
 
     it('Should allow to withdraw the founder balance', async () => {
       const userBalanceBefore = await ethers.provider.getBalance(owner.address);
@@ -596,13 +532,8 @@ describe('Contract', () => {
       expect(ownerBalanceAfter).to.equal(0);
     });
 
-    it('Shoould fail to withdraw if there is no balance', async () => {
-      try {
-        await pixelCup.connect(owner).withdraw();
-      } catch(err) {
-        expect(err.message).to.include('No owner balance');
-      }
-    });
+    it('Shoould fail to withdraw if there is no balance', async () =>
+      expect(pixelCup.connect(owner).withdraw()).to.be.revertedWith('No owner balance'));
 
     it('Should increase the founder balance once all winners claimed the prize', async () => {
       const packsToMint = 5;

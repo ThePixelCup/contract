@@ -188,7 +188,7 @@ contract PixelCup is
                 // Get random sticker
                 uint256 stickerCount = i * stickersPerPack + j;
                 uint256 stickerIndex = randomStickerIndex(
-                    stickersRemaining - stickerCount - 1
+                    stickersRemaining - stickerCount
                 );
                 // Increment the nonce for the random
                 nonce++;
@@ -216,7 +216,7 @@ contract PixelCup is
         payable
         nonReentrant
     {
-        require((mintedPacks + amount) < totalPacks, "Not enough packs left");
+        require((mintedPacks + amount) <= totalPacks, "Not enough packs left");
         require(msg.value >= packPrice * amount, "Insufficient funds");
 
         mintedPacks += amount;
@@ -513,6 +513,8 @@ contract PixelCup is
         view
         returns (uint256)
     {
+        if (totalSize == 0) return 0;
+
         uint256 index = uint256(
             keccak256(
                 abi.encodePacked(
