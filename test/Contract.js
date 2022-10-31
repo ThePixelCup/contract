@@ -528,7 +528,6 @@ describe('Contract', () => {
       expect(poolBalanceBeforeClaim.div(2)).to.equal(poolBalanceAfterClaim);
       
       // Winner stats
-      expect(await pixelCup.numberOfWinners()).to.equal(1);
       expect(await pixelCup.winnersRemaining()).to.equal(maxWinners - 1);
 
       // Cant wint again with same stickers

@@ -6,7 +6,8 @@
     "release": "npx thirdweb@latest release",
     "test": "npx hardhat test",
     "coverage": "npx hardhat coverage --network localhost",
-    "gas": "REPORT_GAS=true npx hardhat test"
+    "gas": "REPORT_GAS=true npx hardhat test",
+    "prettier": "prettier --write 'contracts/**/*.sol'"
   },
   "devDependencies": {
     "@defi-wonderland/smock": "^2.3.0",
@@ -25,6 +26,8 @@
     "ganache-cli": "^6.12.2",
     "hardhat": "^2.10.1",
     "hardhat-gas-reporter": "^1.0.9",
+    "prettier": "^2.7.1",
+    "prettier-plugin-solidity": "^1.0.0-beta.24",
     "solidity-coverage": "^0.8.2",
     "typechain": "^8.1.0"
   },

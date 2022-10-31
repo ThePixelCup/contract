@@ -12,6 +12,9 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+/// @title The Pixel Cup
+/// @notice A decentralized sticker album
+/// @author @guillegette @andrebrener
 contract PixelCup is
     Ownable,
     IERC1155Receiver,
@@ -22,11 +25,6 @@ contract PixelCup is
     ReentrancyGuard
 {
     using Counters for Counters.Counter;
-
-    // Events
-    event PackPriceUpdated(uint256 _price);
-    event PackOpened(address indexed _owner, uint256[] _stickers);
-    event NewWinner(address indexed _owner, uint256 _prize, uint256[] _stickers);
 
     // Constants
     uint256 public constant SALES_TO_POOL_PERCENTAGE = 50;
@@ -71,20 +69,26 @@ contract PixelCup is
         uint256 index;
     }
     Trade[] private _trades;
-    
+
     // Winners
     uint256 public maxWinners;
     mapping(address => bool) public winners;
     Counters.Counter private _numWinners;
 
+    // Events
+    event PackPriceUpdated(uint256 _price);
+    event PackOpened(address indexed _owner, uint256[] _stickers);
+    event NewWinner(
+        address indexed _owner,
+        uint256 _prize,
+        uint256[] _stickers
+    );
+
+    /// @dev Helps to prevent smart contracts from calling functions
     modifier onlyEoa() {
         require(tx.origin == msg.sender, "Not EOA");
         _;
     }
-
-    /*╔═════════════════════════════╗
-      ║         Constructor         ║
-      ╚═════════════════════════════╝*/
 
     constructor(
         string memory baseURI,
@@ -109,105 +113,13 @@ contract PixelCup is
         mintedPacks = packsToMint;
     }
 
-    /*╔═════════════════════════════╗
-      ║           Counters          ║
-      ╚═════════════════════════════╝*/
-
-    function registeredStickers() external view returns (uint256) {
-        return _stickers.length;
-    }
-
-    function numberOfWinners() public view returns (uint256) {
-        return _numWinners.current();
-    }
-
-    function winnersRemaining() public view returns (uint256) {
-        return maxWinners - numberOfWinners();
-    }
-
-    function packBalance(address who) external view returns (uint256) {
-        return balanceOf(who, PACK_TOKEN_ID);
-    }
-
-    function setPackPrice(uint256 value) external onlyOwner {
-        packPrice = value;
-        emit PackPriceUpdated(value);
-    }
-
-    function startTrade(uint256 offerId, uint256 reqCountry, uint256 reqType, uint256 reqNumber) external returns (uint256) {
-        require(offerId != PACK_TOKEN_ID, "Can not trade packs");
-        require(reqCountry > 0 && reqCountry <= totalCountries, "Invalid country");
-        require(reqType > 0 && reqType <= TOTAL_TYPES, "Invalid type");
-        
-        // Add to the trades table
-        _trades.push(Trade(msg.sender, offerId, reqCountry, reqType, reqNumber, _trades.length));
-        // Transfer the sticker to the contract for escrow
-        // This will check that the offer sticker is valid and the owner has balance
-        safeTransferFrom(msg.sender, address(this), offerId, 1, "");
-        return _trades.length - 1;
-    }
-
-    function completeTrade(uint256 tradeIndex, uint256 shirtNumber) external nonReentrant {
-        Trade memory trade = _trades[tradeIndex];
-        if (trade.reqNumber > 0) {
-            require(trade.reqNumber == shirtNumber, "Shirt numbers do not match");
-        }
-        delete _trades[tradeIndex];
-        // Generate the tokenId to complete the trade
-        uint256 tokenId = trade.reqCountry * 1000 + trade.reqType * 100 + shirtNumber;
-        // Trade owner receives the token, will fail if there is no balance or invalid
-        safeTransferFrom(msg.sender, trade.owner, tokenId, 1, "");
-        // Send the sticker hold on escrow
-        IERC1155(address(this)).safeTransferFrom(address(this), msg.sender, trade.offerId, 1, "");
-    }
-
-    function tradeDetails(uint256 tradeIndex) external view returns(Trade memory) {
-        Trade storage trade = _trades[tradeIndex];
-        return trade;
-    }
-
-    function totalTrades() external view returns(uint256) {
-        return _trades.length;
-    }
-
-    function totalActiveTrades(address who) public view returns(uint256) {
-        uint256 count = 0;
-        for (uint256 i = 0; i < _trades.length; i++) {
-            if (_trades[i].owner == who) {
-               count++;
-            }
-        }
-        return count;
-    }
-
-    function ownerTrades(address who) external view returns(Trade[] memory) {
-        // There is no way to avoid two loops to return a dynamic array
-        uint256 activeTrades = totalActiveTrades(who);
-        Trade[] memory values = new Trade[](activeTrades);
-        uint256 valuesIndex = 0;
-        for (uint256 i = 0; i < _trades.length; i++) {
-            if (_trades[i].owner == who) {
-                Trade storage trade = _trades[i];
-                values[valuesIndex] = trade;
-                valuesIndex++;
-            }
-        }
-        
-        return values;
-    }
-
-    function cancelTrade(uint256 tradeIndex) external nonReentrant {
-        Trade memory trade = _trades[tradeIndex];
-        require(trade.owner == msg.sender, "Only the trade owner can cancel");
-        // Return the sticker to the owner
-        delete _trades[tradeIndex];
-        IERC1155(address(this)).safeTransferFrom(address(this), msg.sender, trade.offerId, 1, "");
-    }
-
-    /*╔═════════════════════════════╗
-      ║            Mint             ║
-      ╚═════════════════════════════╝*/
-
+    /// @notice Register available stickers
+    /// @dev Each element on the array represents a token ID property,
+    ///  so the countryIds[1] has the type typeIds[1], shirtNumber[1] and amounts[1]
+    /// @param countryIds Array of country IDs
+    /// @param typeIds Array of type IDs
+    /// @param shirtNumbers Array of shirt numbers
+    /// @param amounts Array of amounts
     function registerStickers(
         uint256[] memory countryIds,
         uint256[] memory typeIds,
@@ -215,9 +127,9 @@ contract PixelCup is
         uint256[] memory amounts
     ) external onlyOwner {
         require(
-            countryIds.length == typeIds.length && 
-            typeIds.length == shirtNumbers.length && 
-            shirtNumbers.length == amounts.length,
+            countryIds.length == typeIds.length &&
+                typeIds.length == shirtNumbers.length &&
+                shirtNumbers.length == amounts.length,
             "All arrays should hae same length"
         );
         for (uint256 i = 0; i < countryIds.length; i++) {
@@ -231,73 +143,53 @@ contract PixelCup is
         }
     }
 
-    function mintPacks(address to, uint256 amount)
-        external
-        payable
-        nonReentrant
-    {
-        require((mintedPacks + amount) < totalPacks, "Not enough packs left");
-        require(msg.value >= packPrice * amount, "Insufficient funds");
-
-        mintedPacks += amount;
-
-        if (winnersRemaining() > 0) {
-            // Update balances
-            ownerBalance += (msg.value * (100 - SALES_TO_POOL_PERCENTAGE)) / 100;
-            prizePoolBalance += (msg.value * SALES_TO_POOL_PERCENTAGE) / 100;
-        } else {
-            // If there are no more possible winners and somehow we still have
-            // packs left, the revenue goes to the team for future proyects
-            ownerBalance += msg.value;
-        }
-        _mint(to, PACK_TOKEN_ID, amount, "");
+    /// @notice Updates the token URI once base path once the collection has been uploaded
+    /// @param path The full ipfs path. It should end with / to later concatenate the token ID
+    function setRevealedPath(string memory path) external onlyOwner {
+        require(!_revealed, "Reveal path has been set");
+        _revealedPath = path;
+        _revealed = true;
     }
 
-    /*╔═════════════════════════════╗
-      ║          Open Pack          ║
-      ╚═════════════════════════════╝*/
-
-    function randomStickerIndex(uint256 totalSize) internal view returns (uint256) {
-        uint256 index = uint256(
-            keccak256(
-                abi.encodePacked(
-                    nonce,
-                    msg.sender,
-                    block.difficulty,
-                    block.timestamp
-                )
-            )
-        ) % totalSize;
-        // Don't allow a zero index, start counting at 1
-        uint256 randomIndex = index + 1;
-        uint256 acc = 0;
-        uint256 stickerIndex = 0;
-        for(uint256 s = 0; s < _stickers.length; s++) {
-            acc += _stickers[s].amountRemaining;
-            if (randomIndex <= acc) {
-                stickerIndex = s;
-                break;
-            }
-        }
-        return stickerIndex;
+    /// @notice Updates the pack price
+    /// @param value The new price of the pack price
+    function setPackPrice(uint256 value) external onlyOwner {
+        packPrice = value;
+        emit PackPriceUpdated(value);
     }
 
+    /// @notice Enable or disable the ability to open packs and claim prizes
+    /// @param enable Set true/false to enable/disable
     function enableOpenPacks(bool enable) external onlyOwner {
         _opePacksEnabled = enable;
     }
 
-    function openPacks(uint256 amount) external nonReentrant onlyEoa returns(uint256[] memory){
+    /// @notice Exchange a pack token ID for a random set of stickersPerPack tokens
+    /// @dev This funciones calls a random number generator. To prevent manipulation,
+    ///  we only allow wallet addresses to call this method
+    /// @param amount Number of packs to exchange for stickers
+    /// @return totalOpenedPacks An array of all stickers token IDs minted to the wallet
+    function openPacks(uint256 amount)
+        external
+        nonReentrant
+        onlyEoa
+        returns (uint256[] memory)
+    {
         require(_opePacksEnabled, "This function is not yet enabled!");
 
         _burn(msg.sender, PACK_TOKEN_ID, amount);
-        
-        uint256[] memory totalOpenedPacks = new uint256[](amount * stickersPerPack);
+
+        uint256[] memory totalOpenedPacks = new uint256[](
+            amount * stickersPerPack
+        );
         for (uint256 i = 0; i < amount; i++) {
             uint256[] memory packStickers = new uint256[](stickersPerPack);
             for (uint256 j = 0; j < stickersPerPack; j++) {
                 // Get random sticker
                 uint256 stickerCount = i * stickersPerPack + j;
-                uint256 stickerIndex = randomStickerIndex(stickersRemaining - stickerCount - 1);
+                uint256 stickerIndex = randomStickerIndex(
+                    stickersRemaining - stickerCount - 1
+                );
                 // Increment the nonce for the random
                 nonce++;
                 // Reduce amount on sticker
@@ -315,11 +207,38 @@ contract PixelCup is
         return totalOpenedPacks;
     }
 
-    /*╔═════════════════════════════╗
-      ║      Complete collection    ║
-      ╚═════════════════════════════╝*/
+    /// @notice Mint pack tokens
+    /// @dev We increase the prizePoolBalance and ownerBalance
+    /// @param to Address to mint packs to
+    /// @param amount Amount of packs to mint
+    function mintPacks(address to, uint256 amount)
+        external
+        payable
+        nonReentrant
+    {
+        require((mintedPacks + amount) < totalPacks, "Not enough packs left");
+        require(msg.value >= packPrice * amount, "Insufficient funds");
 
-    // shirtNumbersProposed has to be in ascending order
+        mintedPacks += amount;
+
+        if (winnersRemaining() > 0) {
+            // Update balances
+            ownerBalance +=
+                (msg.value * (100 - SALES_TO_POOL_PERCENTAGE)) /
+                100;
+            prizePoolBalance += (msg.value * SALES_TO_POOL_PERCENTAGE) / 100;
+        } else {
+            // If there are no more possible winners and somehow we still have
+            // packs left, the revenue goes to the team for future proyects
+            ownerBalance += msg.value;
+        }
+        _mint(to, PACK_TOKEN_ID, amount, "");
+    }
+
+    /// @notice Allows a wallet to claim the prie by claiming to own all unique stickers
+    /// @dev We reduce the prizePoolBalance
+    /// @param shirtNumbersProposed The number of shirts the user claim to own. The numbers need to be
+    ///  sorted by country and type in increasing order, so shirtNumbersProposed[0] is countryId = 1 and typeId =1
     function claimPrize(uint256[] calldata shirtNumbersProposed)
         external
         nonReentrant
@@ -332,7 +251,9 @@ contract PixelCup is
         require(winnersRemaining() > 0, "No more winners");
 
         uint256 shirtNumberIndex;
-        uint256[] memory stickersToBurn = new uint256[](shirtNumbersProposed.length);
+        uint256[] memory stickersToBurn = new uint256[](
+            shirtNumbersProposed.length
+        );
 
         for (uint256 i = 0; i < totalCountries; i++) {
             uint256 countryId = i + 1;
@@ -368,10 +289,95 @@ contract PixelCup is
         payable(msg.sender).transfer(prizeAmount);
     }
 
-    /*╔═════════════════════════════╗
-      ║      Withdraw Functions     ║
-      ╚═════════════════════════════╝*/
+    /// @notice Start a trade between 2 stickers
+    /// @dev The offered sticker will be transfer to the contract as escrow until
+    ///  the trade is completed or cancelled
+    /// @param offerId The sticker token ID offered
+    /// @param reqCountry The required country ID in exchange for the offer
+    /// @param reqType The requried type ID in exchange for the offer
+    /// @param reqNumber The required number of shirt in exchange for the offer. Use 0 to accept any
+    /// @return tradeIndex The ID of the new trade record
+    function startTrade(
+        uint256 offerId,
+        uint256 reqCountry,
+        uint256 reqType,
+        uint256 reqNumber
+    ) external returns (uint256) {
+        require(offerId != PACK_TOKEN_ID, "Can not trade packs");
+        require(
+            reqCountry > 0 && reqCountry <= totalCountries,
+            "Invalid country"
+        );
+        require(reqType > 0 && reqType <= TOTAL_TYPES, "Invalid type");
+        _trades.push(
+            Trade(
+                msg.sender,
+                offerId,
+                reqCountry,
+                reqType,
+                reqNumber,
+                _trades.length
+            )
+        );
+        // Keep the sticker on the contract until the trade is completed or cancelled
+        safeTransferFrom(msg.sender, address(this), offerId, 1, "");
+        return _trades.length - 1;
+    }
 
+    /// @notice Completes an existing trade, sending to each wallet their respective sticker
+    /// @dev The token in escrow is send to the wallet that completes the trade.
+    /// @param tradeIndex The ID of the trade to complete
+    /// @param shirtNumber The shirt number of the sticker the third party is giving in exchange
+    function completeTrade(uint256 tradeIndex, uint256 shirtNumber)
+        external
+        nonReentrant
+    {
+        Trade memory trade = _trades[tradeIndex];
+        if (trade.reqNumber > 0) {
+            require(
+                trade.reqNumber == shirtNumber,
+                "Shirt numbers do not match"
+            );
+        }
+        delete _trades[tradeIndex];
+        // Generate the tokenId to complete the trade
+        uint256 tokenId = trade.reqCountry *
+            1000 +
+            trade.reqType *
+            100 +
+            shirtNumber;
+        // Trade owner receives the token
+        safeTransferFrom(msg.sender, trade.owner, tokenId, 1, "");
+        // Send the sticker hold on escrow
+        IERC1155(address(this)).safeTransferFrom(
+            address(this),
+            msg.sender,
+            trade.offerId,
+            1,
+            ""
+        );
+    }
+
+    /// @notice Cancel an existing trade
+    /// @dev The token in escrow is returned back to the trade owner
+    /// @param tradeIndex The ID of the trade to cancel
+    function cancelTrade(uint256 tradeIndex) external nonReentrant {
+        Trade memory trade = _trades[tradeIndex];
+        require(trade.owner == msg.sender, "Only the trade owner can cancel");
+        // You get some gas back for deleting
+        delete _trades[tradeIndex];
+        // Return the sticker to the owner
+        IERC1155(address(this)).safeTransferFrom(
+            address(this),
+            msg.sender,
+            trade.offerId,
+            1,
+            ""
+        );
+    }
+
+    /// @notice Allow the owner to withdraw the available balance from the ownerBalance
+    /// @dev The ownerBalance is set to 0
     function withdraw() external onlyOwner nonReentrant {
         require(ownerBalance > 0, "No owner balance");
         uint256 balanceToSend = ownerBalance;
@@ -379,20 +385,73 @@ contract PixelCup is
         payable(msg.sender).transfer(balanceToSend);
     }
 
-    /*╔═════════════════════════════╗
-      ║      Override Functions     ║
-      ╚═════════════════════════════╝*/
-
-    function setRevealedPath(string memory path) external onlyOwner {
-        require(!_revealed, "Reveal path has been set");
-        _revealedPath = path;
-        _revealed = true;
+    /// @notice The pack balance of the given address
+    /// @param who The address to check for packs balance
+    /// @return balance The number of packs
+    function packBalance(address who) external view returns (uint256) {
+        return balanceOf(who, PACK_TOKEN_ID);
     }
 
+    /// @notice The total number of stickers registered
+    /// @return length The number of stickers
+    function registeredStickers() external view returns (uint256) {
+        return _stickers.length;
+    }
+
+    /// @notice A trade details
+    /// @param tradeIndex The trade ID
+    /// @return trade The trade details
+    function tradeDetails(uint256 tradeIndex)
+        external
+        view
+        returns (Trade memory)
+    {
+        Trade storage trade = _trades[tradeIndex];
+        return trade;
+    }
+
+    /// @notice Total trades created
+    /// @return length Number of trades
+    function totalTrades() external view returns (uint256) {
+        return _trades.length;
+    }
+
+    /// @notice List the trades started by a given address
+    /// @dev Because memory arrays need a size, we needed 2 loops to return the filtered data
+    /// @param who The address who started the trades
+    /// @return trades An array of trades (if any)
+    function ownerTrades(address who) external view returns (Trade[] memory) {
+        // There is no way to avoid two loops to return a dynamic array
+        uint256 activeTrades = totalActiveTrades(who);
+        Trade[] memory values = new Trade[](activeTrades);
+        uint256 valuesIndex = 0;
+        for (uint256 i = 0; i < _trades.length; i++) {
+            if (_trades[i].owner == who) {
+                Trade storage trade = _trades[i];
+                values[valuesIndex] = trade;
+                valuesIndex++;
+            }
+        }
+
+        return values;
+    }
+
+    /// @notice Returns the URI to a contract specific metadata
+    /// @dev https://docs.opensea.io/docs/contract-level-metadata
+    /// @return _contractURI The URL to the metadata
     function contractURI() external view returns (string memory) {
         return _contractURI;
     }
-    
+
+    /// @notice Return the number of possible winners remaining
+    /// @return winners The number of remaining winners
+    function winnersRemaining() public view returns (uint256) {
+        return maxWinners - _numWinners.current();
+    }
+
+    /// @notice Return the token metadata URL
+    /// @dev The URI depends on the state variable _revealed
+    /// @param tokenId The token ID to return the metadata
     function uri(uint256 tokenId)
         public
         view
@@ -407,6 +466,78 @@ contract PixelCup is
         }
     }
 
+    /// @notice We need to define this function so we can receive ERC1155 tokens
+    /// @dev This is required so we can hold the stickers on escrow during trade
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes memory
+    ) public virtual returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    /// @notice We need to define this function so we can receive ERC1155 tokens
+    /// @dev This is required so we can hold the stickers on escrow during trade
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] memory,
+        uint256[] memory,
+        bytes memory
+    ) public virtual returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    /// @notice Return the total number of active trades a wallet has
+    /// @dev We use this function in ownerTrades()
+    /// @param who The wallet of the trade owner
+    /// @return count The number of active trades for the user
+    function totalActiveTrades(address who) internal view returns (uint256) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < _trades.length; i++) {
+            if (_trades[i].owner == who) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// @notice Returns a random sticker index from the available stickers
+    /// @dev Used by openPacks().
+    /// @param totalSize The upperband of the random number to generate
+    /// @return index The index from the array _stickers
+    function randomStickerIndex(uint256 totalSize)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 index = uint256(
+            keccak256(
+                abi.encodePacked(
+                    nonce,
+                    msg.sender,
+                    block.difficulty,
+                    block.timestamp
+                )
+            )
+        ) % totalSize;
+        // Don't allow a zero index, start counting at 1
+        uint256 randomIndex = index + 1;
+        uint256 acc = 0;
+        uint256 stickerIndex = 0;
+        for (uint256 s = 0; s < _stickers.length; s++) {
+            acc += _stickers[s].amountRemaining;
+            if (randomIndex <= acc) {
+                stickerIndex = s;
+                break;
+            }
+        }
+        return stickerIndex;
+    }
+
+    /// @notice Must haver overrride function for ERC1155
     function _beforeTokenTransfer(
         address operator,
         address from,
@@ -416,17 +547,5 @@ contract PixelCup is
         bytes memory data
     ) internal virtual override(ERC1155, ERC1155Pausable, ERC1155Supply) {
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
-    }
-
-    function onERC1155Received(address, address, uint256, uint256, bytes memory) public virtual returns (bytes4) {
-        return this.onERC1155Received.selector;
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] memory, uint256[] memory, bytes memory) public virtual returns (bytes4) {
-        return this.onERC1155BatchReceived.selector;
-    }
-
-    function onERC721Received(address, address, uint256, bytes memory) public virtual returns (bytes4) {
-        return this.onERC721Received.selector;
     }
 }
