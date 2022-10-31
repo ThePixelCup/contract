@@ -15,7 +15,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 /// @title The Pixel Cup
 /// @notice A decentralized sticker album
 /// @author @guillegette @andrebrener
-contract PixelCup is
+contract ThePixelCup is
     Ownable,
     IERC1155Receiver,
     ERC1155Burnable,

@@ -16,7 +16,7 @@ describe('Edge cases', () => {
       ([owner, user] = await ethers.getSigners());
       const baseUri = 'ipfs://QmUGSCB1ZKxNtqB2atogJYgoYoAq7qXM81kH45esbBkZSe';
       const contractUri = 'ipfs://QmUGYgoYoAq7qXM81kH45esbBkZSeSCB1ZKxNtqB2atogJ';
-      const Contract = await ethers.getContractFactory("PixelCup");
+      const Contract = await ethers.getContractFactory('ThePixelCup');
       pixelCup = await Contract.deploy(
         baseUri,
         contractUri,

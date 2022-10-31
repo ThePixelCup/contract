@@ -30,7 +30,7 @@ describe('The Pixel Cup', () => {
       ([owner, userA, userB, userC, userD] = await ethers.getSigners());
       const baseUri = 'ipfs://QmUGSCB1ZKxNtqB2atogJYgoYoAq7qXM81kH45esbBkZSe';
       const contractUri = 'ipfs://QmUGYgoYoAq7qXM81kH45esbBkZSeSCB1ZKxNtqB2atogJ';
-      const Contract = await ethers.getContractFactory("PixelCup");
+      const Contract = await ethers.getContractFactory('ThePixelCup');
       pixelCup = await Contract.deploy(
         baseUri,
         contractUri,
@@ -170,7 +170,7 @@ describe('The Pixel Cup', () => {
 
     it('Should check that only EOA can open packs', async () => {
       await pixelCup.enableOpenPacks(true);
-      const Contract = await ethers.getContractFactory("PixelCup");
+      const Contract = await ethers.getContractFactory('ThePixelCup');
       const anotherContract = await Contract.deploy(
         'ipfs://{id}.json',
         'ipfs://contract.json',
