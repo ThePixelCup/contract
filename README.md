@@ -1,47 +1,23 @@
-## Getting Started
+# The Pixel Cup
 
-Create a project using this example:
+The first fully decentralized NFT sticker album in the Etherum network. [www.thepixelcup.com](www.thepixelcup.com)
 
-```bash
-npx thirdweb create --contract --template hardhat-javascript-starter
-```
+We are bringing the experience of collecting a sticker album to web 3.0, but in contrast to the traditional model we offer:
 
-You can start editing the page by modifying `contracts/Contract.sol`.
+1. A cash prize for the winners
+2. A limited number of packs you can buy
+3. A public and predefined stickers balance
+4. Open sourced and backed by the blockchain
 
-To add functionality to your contracts, you can use the `@thirdweb-dev/contracts` package which provides base contracts and extensions to inherit. The package is already installed with this project. Head to our [Contracts Extensions Docs](https://portal.thirdweb.com/thirdweb-deploy/contract-extensions) to learn more.
+## How it works
+The game rules and functionalities are defined in the Pixel Cup Smart Contrat. The users can buy (mint) packs that can be exchanged for stickers. Each pack and sticker is an ERC-1155 token. There is a pool prize made up by a percentage of the revenues from selling the packs. Each person that completes the album can claim a prize. [Learn more](https://www.thepixelcup.com/docs/rules/)
 
-## Building the project
+## The collection
+Our first collection is based on the 96 unique jerseys from the 32 national teams participating in the World Cup 2022 in their pixel version (32 home, 32 away y 32 goalkeepr). We chose this collection because this is one of the most important sports events in the world and the physical album has been one of the most popular collectibles items for decades. [Learn more](https://www.thepixelcup.com/docs/collection/)
 
-After any changes to the contract, run:
+## Join the community
+We want to create a global community of sports and collectible lovers, a safe place for our holders to interact, trade and enjoy the biggest football competition in the world together. We will create unique and fun activities for our community members to win virtual and physical prizes. [Learn more](https://www.thepixelcup.com/docs/community/)
 
-```bash
-npm run build
-# or
-yarn build
-```
-
-to compile your contracts. This will also detect the [Contracts Extensions Docs](https://portal.thirdweb.com/thirdweb-deploy/contract-extensions) detected on your contract.
-
-## Deploying Contracts
-
-When you're ready to deploy your contracts, just run one of the following command to deploy you're contracts:
-
-```bash
-npm run deploy
-# or
-yarn deploy
-```
-
-## Releasing Contracts
-
-If you want to release a version of your contracts publicly, you can use one of the followings command:
-
-```bash
-npm run release
-# or
-yarn release
-```
-
-## Join our Discord!
-
-For any questions, suggestions, join our discord at [https://discord.gg/thirdweb](https://discord.gg/thirdweb).
+- [Discord](https://discord.gg/uRyYuaAd4W)
+- [Twitter](https://twitter.com/the_pixelcup)
+- [Instagram](https://www.instagram.com/the_pixelcup/)
