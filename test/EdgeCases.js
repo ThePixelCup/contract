@@ -1,22 +1,27 @@
-const { expect } = require('chai');
+const { expect } = require("chai");
 
-describe('Edge cases', () => {
-  describe('Make sure we use all stickers', () => {
+describe("Edge cases", () => {
+  describe("Make sure we use all stickers", () => {
     let totalPacks = 9,
       stickersPerPack = 4,
       maxWinners = 1,
       totalCountries = 4,
       totalTypes = 3,
       marketingPacks = 0,
-      packPrice = ethers.utils.parseEther('0.01');
+      packPrice = ethers.utils.parseEther("0.01");
 
-    let pixelCup, owner, user, userAstickers = [], userBstickers = [];
+    let pixelCup,
+      owner,
+      user,
+      userAstickers = [],
+      userBstickers = [];
 
-    it('Should deploy the contract', async () => {
-      ([owner, user] = await ethers.getSigners());
-      const baseUri = 'ipfs://QmUGSCB1ZKxNtqB2atogJYgoYoAq7qXM81kH45esbBkZSe';
-      const contractUri = 'ipfs://QmUGYgoYoAq7qXM81kH45esbBkZSeSCB1ZKxNtqB2atogJ';
-      const Contract = await ethers.getContractFactory('ThePixelCup');
+    it("Should deploy the contract", async () => {
+      [owner, user] = await ethers.getSigners();
+      const baseUri = "ipfs://QmUGSCB1ZKxNtqB2atogJYgoYoAq7qXM81kH45esbBkZSe";
+      const contractUri =
+        "ipfs://QmUGYgoYoAq7qXM81kH45esbBkZSeSCB1ZKxNtqB2atogJ";
+      const Contract = await ethers.getContractFactory("ThePixelCup");
       pixelCup = await Contract.deploy(
         baseUri,
         contractUri,
@@ -27,7 +32,7 @@ describe('Edge cases', () => {
         totalCountries,
         packPrice
       );
-      
+
       // Contract conf
       expect(await pixelCup.totalPacks()).to.equal(totalPacks);
       expect(await pixelCup.stickersPerPack()).to.equal(stickersPerPack);
@@ -36,17 +41,19 @@ describe('Edge cases', () => {
       expect(await pixelCup.packPrice()).to.equal(packPrice);
 
       // Pack allocation
-      expect(await pixelCup.packBalance(owner.address)).to.equal(marketingPacks);
+      expect(await pixelCup.packBalance(owner.address)).to.equal(
+        marketingPacks
+      );
       expect(await pixelCup.mintedPacks()).to.equal(marketingPacks);
 
       // Token Uri
       expect(await pixelCup.uri(1)).to.equal(baseUri);
-      
+
       // Contract Uri for OpenSea
       expect(await pixelCup.contractURI()).to.equal(contractUri);
     });
 
-    it('Should register stickers', async () => {
+    it("Should register stickers", async () => {
       const countryIds = [];
       const typeIds = [];
       const shirtNumbers = [];
@@ -58,14 +65,14 @@ describe('Edge cases', () => {
             typeIds.push(t);
             shirtNumbers.push(n);
             amounts.push(1);
-          } 
+          }
         }
       }
       const totalAmount = amounts.reduce((p, a) => p + a, 0);
       const step = stickersPerPack;
 
       // Do it in batches as it will be in mainnet
-      for (let j = step; j <= (amounts.length + step); j+=step) {
+      for (let j = step; j <= amounts.length + step; j += step) {
         await pixelCup.registerStickers(
           countryIds.slice(j - step, j),
           typeIds.slice(j - step, j),
@@ -74,13 +81,13 @@ describe('Edge cases', () => {
         );
       }
 
-      expect(await pixelCup.stickersRemaining()).to.equal(totalAmount);
+      expect(await pixelCup.stickersAvailable()).to.equal(totalAmount);
       expect(await pixelCup.registeredStickers()).to.equal(amounts.length);
     });
-    
-    it('Should open all packs', async () => {
+
+    it("Should open all packs", async () => {
       await pixelCup.enableOpenPacks(true);
-      const totalStickers = await pixelCup.stickersRemaining();
+      const totalStickers = await pixelCup.stickersAvailable();
 
       const packsToMint = totalPacks;
       await pixelCup.mintPacks(user.address, packsToMint, {
@@ -88,23 +95,28 @@ describe('Edge cases', () => {
       });
       const tx = await pixelCup.connect(user).openPacks(packsToMint);
       const { events } = await tx.wait();
-      const packsOpened = events.filter(({event}) => event === 'PackOpened');
-      expect(packsOpened.length).to.equal(packsToMint)
+      const packsOpened = events.filter(({ event }) => event === "PackOpened");
+      expect(packsOpened.length).to.equal(packsToMint);
       const userStickers = [];
       packsOpened.forEach((pack) => {
-        const { args: { _stickers } } = pack
+        const {
+          args: { _stickers },
+        } = pack;
         userStickers.push(..._stickers);
       });
-      expect(await pixelCup.stickersRemaining()).to.equal(0);
+      expect(await pixelCup.stickersAvailable()).to.equal(0);
       expect(userStickers.length).to.equal(totalStickers);
       expect(await pixelCup.mintedPacks()).to.equal(packsToMint);
 
-      await expect(pixelCup.connect(user).mintPacks(user.address, 1, {
-        value: packPrice.mul(1),
-      })).to.be.revertedWith('Not enough packs left');
+      await expect(
+        pixelCup.connect(user).mintPacks(user.address, 1, {
+          value: packPrice.mul(1),
+        })
+      ).to.be.revertedWith("Not enough packs left");
 
-      await expect(pixelCup.connect(user).openPacks(1)).to.be
-        .revertedWith('ERC1155: burn amount exceeds totalSupply');
-    })
+      await expect(pixelCup.connect(user).openPacks(1)).to.be.revertedWith(
+        "ERC1155: burn amount exceeds totalSupply"
+      );
+    });
   });
 });

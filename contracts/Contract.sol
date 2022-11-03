@@ -33,7 +33,7 @@ contract ThePixelCup is
 
     // URI
     string private _revealedPath;
-    bool private _revealed = false;
+    bool private _revealed;
     string private _contractURI;
 
     // Prize Pool
@@ -44,8 +44,8 @@ contract ThePixelCup is
     uint256 public totalPacks;
     uint256 public stickersPerPack;
     uint256 public packPrice;
-    uint256 public mintedPacks = 0;
-    bool private _opePacksEnabled = false;
+    uint256 public mintedPacks;
+    bool private _openPacksEnabled;
 
     // Stickers
     struct Sticker {
@@ -54,10 +54,10 @@ contract ThePixelCup is
     }
     Sticker[] private _stickers;
     uint256 public totalCountries;
-    uint256 public stickersRemaining = 0;
+    uint256 public stickersAvailable;
 
     // Random index assignment
-    uint256 internal nonce = 0;
+    uint256 internal nonce;
 
     // Trades
     struct Trade {
@@ -84,7 +84,7 @@ contract ThePixelCup is
         uint256[] _stickers
     );
 
-    /// @dev Helps to prevent smart contracts from calling functions
+    /// @dev Prevents smart contracts from calling functions
     modifier onlyEoa() {
         require(tx.origin == msg.sender, "Not EOA");
         _;
@@ -130,7 +130,7 @@ contract ThePixelCup is
             countryIds.length == typeIds.length &&
                 typeIds.length == shirtNumbers.length &&
                 shirtNumbers.length == amounts.length,
-            "All arrays should hae same length"
+            "All arrays should have same length"
         );
         for (uint256 i = 0; i < countryIds.length; i++) {
             uint256 tokenId = countryIds[i] *
@@ -139,7 +139,7 @@ contract ThePixelCup is
                 100 +
                 shirtNumbers[i];
             _stickers.push(Sticker(tokenId, amounts[i]));
-            stickersRemaining += amounts[i];
+            stickersAvailable += amounts[i];
         }
     }
 
@@ -154,6 +154,7 @@ contract ThePixelCup is
     /// @notice Updates the pack price
     /// @param value The new price of the pack price
     function setPackPrice(uint256 value) external onlyOwner {
+        // ANDRE: require(packPrice != value, "Cannot be the same value");
         packPrice = value;
         emit PackPriceUpdated(value);
     }
@@ -161,7 +162,7 @@ contract ThePixelCup is
     /// @notice Enable or disable the ability to open packs and claim prizes
     /// @param enable Set true/false to enable/disable
     function enableOpenPacks(bool enable) external onlyOwner {
-        _opePacksEnabled = enable;
+        _openPacksEnabled = enable;
     }
 
     /// @notice Exchange a pack token ID for a random set of stickersPerPack tokens
@@ -172,10 +173,11 @@ contract ThePixelCup is
     function openPacks(uint256 amount)
         external
         nonReentrant
+        // ANDRE: creeria que el nonReentrant es solo para cuando haces con contratos por lo que con el onlyEoa esta cubierto
         onlyEoa
         returns (uint256[] memory)
     {
-        require(_opePacksEnabled, "This function is not yet enabled!");
+        require(_openPacksEnabled, "This function is not yet enabled!");
 
         _burn(msg.sender, PACK_TOKEN_ID, amount);
 
@@ -188,7 +190,7 @@ contract ThePixelCup is
                 // Get random sticker
                 uint256 stickerCount = i * stickersPerPack + j;
                 uint256 stickerIndex = randomStickerIndex(
-                    stickersRemaining - stickerCount
+                    stickersAvailable - stickerCount
                 );
                 // Increment the nonce for the random
                 nonce++;
@@ -203,7 +205,7 @@ contract ThePixelCup is
             }
             emit PackOpened(msg.sender, packStickers);
         }
-        stickersRemaining -= amount * stickersPerPack;
+        stickersAvailable -= amount * stickersPerPack;
         return totalOpenedPacks;
     }
 
@@ -235,7 +237,7 @@ contract ThePixelCup is
         _mint(to, PACK_TOKEN_ID, amount, "");
     }
 
-    /// @notice Allows a wallet to claim the prie by claiming to own all unique stickers
+    /// @notice Allows a wallet to claim the prize by claiming to own all unique stickers
     /// @dev We reduce the prizePoolBalance
     /// @param shirtNumbersProposed The number of shirts the user claim to own. The numbers need to be
     ///  sorted by country and type in increasing order, so shirtNumbersProposed[0] is countryId = 1 and typeId =1
@@ -247,7 +249,7 @@ contract ThePixelCup is
             shirtNumbersProposed.length == (totalCountries * TOTAL_TYPES),
             "Not the right amount of stickers"
         );
-        require(_opePacksEnabled, "This function is not yet enabled!");
+        require(_openPacksEnabled, "This function is not yet enabled!");
         require(winnersRemaining() > 0, "No more winners");
 
         uint256 shirtNumberIndex;
@@ -271,6 +273,7 @@ contract ThePixelCup is
                 stickersToBurn[shirtNumberIndex] = tokenId;
                 shirtNumberIndex += 1;
                 _burn(msg.sender, tokenId, 1);
+                // ANDRE: yo en su momento vi y el burnBatch es lo mismo, pero por las dudas se podria rechequear. O sea seria en vez de burnear cada token usar el burnBatch para todos
             }
         }
 
@@ -294,7 +297,7 @@ contract ThePixelCup is
     ///  the trade is completed or cancelled
     /// @param offerId The sticker token ID offered
     /// @param reqCountry The required country ID in exchange for the offer
-    /// @param reqType The requried type ID in exchange for the offer
+    /// @param reqType The required type ID in exchange for the offer
     /// @param reqNumber The required number of shirt in exchange for the offer. Use 0 to accept any
     /// @return tradeIndex The ID of the new trade record
     function startTrade(
@@ -303,7 +306,7 @@ contract ThePixelCup is
         uint256 reqType,
         uint256 reqNumber
     ) external returns (uint256) {
-        require(offerId != PACK_TOKEN_ID, "Can not trade packs");
+        require(offerId != PACK_TOKEN_ID, "Cannot trade packs");
         require(
             reqCountry > 0 && reqCountry <= totalCountries,
             "Invalid country"
@@ -333,6 +336,9 @@ contract ThePixelCup is
         nonReentrant
     {
         Trade memory trade = _trades[tradeIndex];
+
+        // ANDRE: require(trade.owner != address(0), "Trade does not exist");
+
         if (trade.reqNumber > 0) {
             require(
                 trade.reqNumber == shirtNumber,
@@ -363,6 +369,9 @@ contract ThePixelCup is
     /// @param tradeIndex The ID of the trade to cancel
     function cancelTrade(uint256 tradeIndex) external nonReentrant {
         Trade memory trade = _trades[tradeIndex];
+
+        // ANDRE: require(trade.owner != address(0), "Trade does not exist"); Entiendo que la de abajo ya chequea pero para que devuelve mejor un error
+
         require(trade.owner == msg.sender, "Only the trade owner can cancel");
         // You get some gas back for deleting
         delete _trades[tradeIndex];
@@ -380,9 +389,8 @@ contract ThePixelCup is
     /// @dev The ownerBalance is set to 0
     function withdraw() external onlyOwner nonReentrant {
         require(ownerBalance > 0, "No owner balance");
-        uint256 balanceToSend = ownerBalance;
+        payable(msg.sender).transfer(ownerBalance);
         ownerBalance = 0;
-        payable(msg.sender).transfer(balanceToSend);
     }
 
     /// @notice The pack balance of the given address
@@ -406,7 +414,7 @@ contract ThePixelCup is
         view
         returns (Trade memory)
     {
-        Trade storage trade = _trades[tradeIndex];
+        Trade memory trade = _trades[tradeIndex];
         return trade;
     }
 
@@ -427,7 +435,7 @@ contract ThePixelCup is
         uint256 valuesIndex = 0;
         for (uint256 i = 0; i < _trades.length; i++) {
             if (_trades[i].owner == who) {
-                Trade storage trade = _trades[i];
+                Trade memory trade = _trades[i];
                 values[valuesIndex] = trade;
                 valuesIndex++;
             }
@@ -490,7 +498,7 @@ contract ThePixelCup is
         return this.onERC1155BatchReceived.selector;
     }
 
-    /// @notice Return the total number of active trades a wallet has
+    /// @notice Return the total number of active trades for a wallet
     /// @dev We use this function in ownerTrades()
     /// @param who The wallet of the trade owner
     /// @return count The number of active trades for the user
