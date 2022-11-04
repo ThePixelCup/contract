@@ -134,6 +134,11 @@ describe("The Pixel Cup", () => {
         pixelCup.connect(userA).setPackPrice(ethers.utils.parseEther("0.02"))
       ).to.be.revertedWith("Ownable: caller is not the owner"));
 
+    it("Should fail to update pack price if is the samer", () =>
+      expect(
+        pixelCup.connect(owner).setPackPrice(packPrice)
+      ).to.be.revertedWith("Cannot be the same value"));
+
     it("Should update the pack price", async () => {
       expect(ethers.utils.formatEther(packPrice)).to.equal("0.01");
       const newPrice = ethers.utils.parseEther("0.02");
@@ -283,6 +288,16 @@ describe("The Pixel Cup", () => {
 
   describe("Trades", () => {
     let tradeIndex;
+
+    it("Should fail to cancel an invalid trade", async () =>
+      expect(pixelCup.connect(userA).cancelTrade(1000)).to.be.revertedWith(
+        "Trade does not exist"
+      ));
+
+    it("Should fail to complete an invalid trade", async () =>
+      expect(pixelCup.connect(userA).completeTrade(1000, 10)).to.be.revertedWith(
+        "Trade does not exist"
+      ));
 
     it("Should fail if starting a trade with a pack", async () => {
       const stickerReq = userBstickers[0];
@@ -457,6 +472,10 @@ describe("The Pixel Cup", () => {
         pixelCup.connect(userA).cancelTrade(tradeToCancel)
       ).to.be.revertedWith("Only the trade owner can cancel");
       await pixelCup.connect(userB).cancelTrade(tradeToCancel);
+      // Fail to cancel the same trade
+      await expect(
+        pixelCup.connect(userA).cancelTrade(tradeToCancel)
+      ).to.be.revertedWith("Trade does not exist");
       const ownerTradesAfterCancel = await pixelCup.ownerTrades(userB.address);
       expect(ownerTradesAfterCancel).to.have.length(1);
       expect(ownerTradesAfterCancel[0].index).to.equal(tradeIndex);
@@ -470,6 +489,10 @@ describe("The Pixel Cup", () => {
         .connect(userA)
         .completeTrade(tradeIndex, stickerReq.number);
       expect(await pixelCup.ownerTrades(userB.address)).to.have.length(0);
+      // Fail to complete the same trade
+      await expect(
+        pixelCup.connect(userA).completeTrade(tradeIndex, stickerReq.number)
+      ).to.be.revertedWith("Trade does not exist");
     });
   });
 
@@ -545,6 +568,7 @@ describe("The Pixel Cup", () => {
 
     it("Should allow to claim the prize", async () => {
       const userAalbun = await completeAlbum(userA);
+      const stickerBalanceBefore = await pixelCup.balanceOf(userA.address, userAalbun[0]);
       const contractBalanceBeforeClaim = await provider.getBalance(
         pixelCup.address
       );
@@ -561,6 +585,9 @@ describe("The Pixel Cup", () => {
       const winnerEvent = events.find(({ event }) => event === "NewWinner");
       expect(winnerEvent.args._owner).to.equal(userA.address);
       expect(winnerEvent.args._stickers).to.have.deep.members(userAalbun);
+      
+      // Check that we burn the stickers
+      expect(await pixelCup.balanceOf(userA.address, userAalbun[0])).to.equal(stickerBalanceBefore.sub(1));
 
       // Check sum contract balance
       const userBalanceAfterClaim = await ethers.provider.getBalance(

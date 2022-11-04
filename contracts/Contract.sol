@@ -154,7 +154,7 @@ contract ThePixelCup is
     /// @notice Updates the pack price
     /// @param value The new price of the pack price
     function setPackPrice(uint256 value) external onlyOwner {
-        // ANDRE: require(packPrice != value, "Cannot be the same value");
+        require(packPrice != value, "Cannot be the same value");
         packPrice = value;
         emit PackPriceUpdated(value);
     }
@@ -173,7 +173,6 @@ contract ThePixelCup is
     function openPacks(uint256 amount)
         external
         nonReentrant
-        // ANDRE: creeria que el nonReentrant es solo para cuando haces con contratos por lo que con el onlyEoa esta cubierto
         onlyEoa
         returns (uint256[] memory)
     {
@@ -273,7 +272,6 @@ contract ThePixelCup is
                 stickersToBurn[shirtNumberIndex] = tokenId;
                 shirtNumberIndex += 1;
                 _burn(msg.sender, tokenId, 1);
-                // ANDRE: yo en su momento vi y el burnBatch es lo mismo, pero por las dudas se podria rechequear. O sea seria en vez de burnear cada token usar el burnBatch para todos
             }
         }
 
@@ -335,9 +333,9 @@ contract ThePixelCup is
         external
         nonReentrant
     {
+        require(tradeIndex < _trades.length, "Trade does not exist");
         Trade memory trade = _trades[tradeIndex];
-
-        // ANDRE: require(trade.owner != address(0), "Trade does not exist");
+        require(trade.owner != address(0), "Trade does not exist");
 
         if (trade.reqNumber > 0) {
             require(
@@ -368,10 +366,9 @@ contract ThePixelCup is
     /// @dev The token in escrow is returned back to the trade owner
     /// @param tradeIndex The ID of the trade to cancel
     function cancelTrade(uint256 tradeIndex) external nonReentrant {
+        require(tradeIndex < _trades.length, "Trade does not exist");
         Trade memory trade = _trades[tradeIndex];
-
-        // ANDRE: require(trade.owner != address(0), "Trade does not exist"); Entiendo que la de abajo ya chequea pero para que devuelve mejor un error
-
+        require(trade.owner != address(0), "Trade does not exist");
         require(trade.owner == msg.sender, "Only the trade owner can cancel");
         // You get some gas back for deleting
         delete _trades[tradeIndex];
@@ -389,8 +386,9 @@ contract ThePixelCup is
     /// @dev The ownerBalance is set to 0
     function withdraw() external onlyOwner nonReentrant {
         require(ownerBalance > 0, "No owner balance");
-        payable(msg.sender).transfer(ownerBalance);
+        uint256 balanceToSend = ownerBalance;
         ownerBalance = 0;
+        payable(msg.sender).transfer(balanceToSend);
     }
 
     /// @notice The pack balance of the given address
