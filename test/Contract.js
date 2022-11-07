@@ -42,7 +42,7 @@ describe("The Pixel Cup", () => {
       pixelCup = await Contract.deploy(
         baseUri,
         contractUri,
-        totalPacks,
+        totalPacks + marketingPacks,
         marketingPacks,
         stickersPerPack,
         maxWinners,
@@ -51,7 +51,7 @@ describe("The Pixel Cup", () => {
       );
 
       // Contract conf
-      expect(await pixelCup.totalPacks()).to.equal(totalPacks);
+      expect(await pixelCup.totalPacks()).to.equal(totalPacks + marketingPacks);
       expect(await pixelCup.stickersPerPack()).to.equal(stickersPerPack);
       expect(await pixelCup.maxWinners()).to.equal(maxWinners);
       expect(await pixelCup.totalCountries()).to.equal(totalCountries);
